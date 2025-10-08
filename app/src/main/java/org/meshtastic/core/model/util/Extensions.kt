@@ -18,8 +18,8 @@
 package org.meshtastic.core.model.util
 
 import android.widget.EditText
-import com.geeksville.mesh.ConfigProtos
-import com.geeksville.mesh.MeshProtos
+import org.meshtastic.proto.ConfigProtos
+import org.meshtastic.proto.MeshProtos
 // import org.meshtastic.core.model.BuildConfig // Not needed in plugin
 
 /**

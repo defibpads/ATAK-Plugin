@@ -19,8 +19,8 @@ package org.meshtastic.core.model
 
 import android.os.Parcel
 import android.os.Parcelable
-import com.geeksville.mesh.MeshProtos
-import com.geeksville.mesh.Portnums
+import org.meshtastic.proto.MeshProtos
+import org.meshtastic.proto.Portnums
 import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.Serializable
 

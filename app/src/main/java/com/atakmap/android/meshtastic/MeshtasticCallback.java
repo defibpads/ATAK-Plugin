@@ -16,11 +16,11 @@ import com.atakmap.android.missionpackage.file.MissionPackageManifest;
 import com.atakmap.android.missionpackage.file.task.MissionPackageBaseTask;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.atakmap.coremap.log.Log;
-import com.geeksville.mesh.ConfigProtos;
+import org.meshtastic.proto.ConfigProtos;
 import org.meshtastic.core.model.DataPacket;
-import com.geeksville.mesh.LocalOnlyProtos;
+import org.meshtastic.proto.LocalOnlyProtos;
 import org.meshtastic.core.model.MessageStatus;
-import com.geeksville.mesh.Portnums;
+import org.meshtastic.proto.Portnums;
 import com.google.protobuf.InvalidProtocolBufferException;
 
 import java.io.File;

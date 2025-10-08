@@ -8,7 +8,7 @@ import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.cot.event.CotPoint;
 import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
-import com.geeksville.mesh.ATAKProtos;
+import org.meshtastic.proto.ATAKProtos;
 import com.google.protobuf.ByteString;
 
 import org.xmlpull.v1.XmlPullParser;

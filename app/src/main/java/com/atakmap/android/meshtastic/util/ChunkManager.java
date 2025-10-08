@@ -6,7 +6,7 @@ import com.atakmap.coremap.log.Log;
 import org.meshtastic.core.model.DataPacket;
 import org.meshtastic.core.service.IMeshService;
 import org.meshtastic.core.model.MessageStatus;
-import com.geeksville.mesh.Portnums;
+import org.meshtastic.proto.Portnums;
 
 import java.util.ArrayList;
 import java.util.Arrays;

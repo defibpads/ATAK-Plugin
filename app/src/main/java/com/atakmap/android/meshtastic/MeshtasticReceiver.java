@@ -51,14 +51,14 @@ import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
 
 import com.atakmap.map.projection.EquirectangularMapProjection;
-import com.geeksville.mesh.ATAKProtos;
-import com.geeksville.mesh.ConfigProtos;
+import org.meshtastic.proto.ATAKProtos;
+import org.meshtastic.proto.ConfigProtos;
 import org.meshtastic.core.model.DataPacket;
 
-import com.geeksville.mesh.LocalOnlyProtos;
+import org.meshtastic.proto.LocalOnlyProtos;
 import org.meshtastic.core.model.MessageStatus;
 import org.meshtastic.core.model.NodeInfo;
-import com.geeksville.mesh.Portnums;
+import org.meshtastic.proto.Portnums;
 import com.google.protobuf.InvalidProtocolBufferException;
 
 import java.io.ByteArrayInputStream;
