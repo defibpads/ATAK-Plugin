@@ -78,7 +78,7 @@ public class MeshtasticCallback implements SaveAndSendCallback {
                 configBuilder.setLora(loRaConfigBuilder.get());
                 boolean needReboot;
 
-                // if not already in short/fast mode, switch to it
+                // if not already in short/turbo mode, switch to it
                 if (oldModemPreset != ConfigProtos.Config.LoRaConfig.ModemPreset.SHORT_TURBO_VALUE) {
                     Toast.makeText(MapView.getMapView().getContext(), "Rebooting to Short/TURBO for file transfer", Toast.LENGTH_LONG).show();
                     needReboot = true;
@@ -100,7 +100,7 @@ public class MeshtasticCallback implements SaveAndSendCallback {
                     ackManager.registerForAck(messageId);
 
                     Log.d(TAG, "Broadcasting switch command");
-                    DataPacket dp = new DataPacket(DataPacket.ID_BROADCAST, new byte[]{'S', 'W', 'T'}, Portnums.PortNum.ATAK_FORWARDER_VALUE, DataPacket.ID_LOCAL, System.currentTimeMillis(), messageId, MessageStatus.UNKNOWN, 3, channel, true, 0, 0f, 0, null);
+                    DataPacket dp = new DataPacket(DataPacket.ID_BROADCAST, new byte[]{'S', 'W', 'T'}, Portnums.PortNum.ATAK_FORWARDER_VALUE, DataPacket.ID_LOCAL, System.currentTimeMillis(), messageId, MessageStatus.UNKNOWN, 3, channel, true, 0, 0f, 0, null, null);
                     MeshtasticMapComponent.sendToMesh(dp);
 
                     // Wait for ACK with timeout

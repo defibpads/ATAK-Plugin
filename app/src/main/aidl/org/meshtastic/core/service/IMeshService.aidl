@@ -136,7 +136,7 @@ interface IMeshService {
     void requestFactoryReset(in int requestId, in int destNum);
 
     /// Send NodedbReset admin packet to nodeNum
-    void requestNodedbReset(in int requestId, in int destNum);
+    void requestNodedbReset(in int requestId, in int destNum, in boolean preserveFavorites);
 
     /// Returns a ChannelSet protobuf
     byte []getChannelSet();
@@ -170,4 +170,7 @@ interface IMeshService {
 
     /// Send request for node UserInfo
     void requestUserInfo(in int destNum);
+
+    /// Request device connection status from the radio
+    void getDeviceConnectionStatus(in int requestId, in int destNum);
 }

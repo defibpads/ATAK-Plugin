@@ -18,9 +18,9 @@
 package org.meshtastic.core.model.util
 
 import android.widget.EditText
+//import org.meshtastic.core.model.BuildConfig
 import org.meshtastic.proto.ConfigProtos
 import org.meshtastic.proto.MeshProtos
-// import org.meshtastic.core.model.BuildConfig // Not needed in plugin
 
 /**
  * When printing strings to logs sometimes we want to print useful debugging information about users or positions. But
@@ -44,6 +44,13 @@ fun ConfigProtos.Config.toOneLineString(): String {
         .replace('\n', ' ')
 }
 
+fun MeshProtos.MeshPacket.toOneLineString(): String {
+    val redactedFields = """(public_key:|private_key:|admin_key:)\s*".*""" // Redact keys
+    return this.toString()
+        .replace(redactedFields.toRegex()) { "${it.groupValues[1]} \"[REDACTED]\"" }
+        .replace('\n', ' ')
+}
+
 fun MeshProtos.toOneLineString(): String {
     val redactedFields = """(public_key:|private_key:|admin_key:)\s*".*""" // Redact keys
     return this.toString()
@@ -52,11 +59,8 @@ fun MeshProtos.toOneLineString(): String {
 }
 
 // Return a one line string version of an object (but if a release build, just say 'might be PII)
-fun Any.toPIIString() = if (true) { // Always anonymize in plugin
-    "<PII?>"
-} else {
-    this.toOneLineString()
-}
+fun Any.toPIIString() = "<PII?>"
+
 
 fun ByteArray.toHexString() = joinToString("") { "%02x".format(it) }
 

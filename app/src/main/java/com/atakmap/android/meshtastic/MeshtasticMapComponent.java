@@ -293,7 +293,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         ATAKProtos.TAKPacket takPacket = cotEventProcessor.buildPLIPacket(data);
         
         Log.d(TAG, "Total wire size for TAKPacket: " + takPacket.toByteArray().length);
-        Log.d(TAG, "Sending: " + takPacket.toString());
+        //Log.d(TAG, "Sending: " + takPacket.toString());
         
         DataPacket dp = new DataPacket(
             DataPacket.ID_BROADCAST,
@@ -309,7 +309,8 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             0,  // hopStart
             0f, // snr
             0,  // rssi
-            null // replyId
+            null, // replyId,
+            null // relayNode
         );
         
         meshServiceManager.sendToMesh(dp);
@@ -321,7 +322,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         ATAKProtos.TAKPacket takPacket = cotEventProcessor.buildChatPacket(data);
         
         Log.d(TAG, "Total wire size for TAKPacket: " + takPacket.toByteArray().length);
-        Log.d(TAG, "Sending: " + takPacket.toString());
+        //Log.d(TAG, "Sending: " + takPacket.toString());
         
         DataPacket dp = new DataPacket(
             DataPacket.ID_BROADCAST,
@@ -337,7 +338,8 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             0,  // hopStart
             0f, // snr
             0,  // rssi
-            null // replyId
+            null, // replyId,
+            null // relayNode
         );
         
         meshServiceManager.sendToMesh(dp);
@@ -371,14 +373,15 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 0,  // hopStart
                 0f, // snr
                 0,  // rssi
-                null // replyId
+                null, // replyId,
+                null // relayNode
             );
         } else {
             // Regular ATAK device
             ATAKProtos.TAKPacket takPacket = cotEventProcessor.buildChatPacket(data);
             
             Log.d(TAG, "Total wire size for TAKPacket: " + takPacket.toByteArray().length);
-            Log.d(TAG, "Sending: " + takPacket.toString());
+            //Log.d(TAG, "Sending: " + takPacket.toString());
             
             dp = new DataPacket(
                 DataPacket.ID_BROADCAST,
@@ -394,7 +397,8 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 0,  // hopStart
                 0f, // snr
                 0,  // rssi
-                null // replyId
+                null, // replyId,
+                null // relayNode
             );
         }
         
@@ -461,7 +465,8 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                     0,  // hopStart
                     0f, // snr
                     0,  // rssi
-                    null // replyId
+                    null, // replyId,
+                    null // relayNode
                 );
                 meshServiceManager.sendToMesh(dp);
                 return;

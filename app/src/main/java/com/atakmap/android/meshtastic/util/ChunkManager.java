@@ -120,7 +120,8 @@ public class ChunkManager {
             0,  // hopStart
             0f, // snr
             0,  // rssi
-            null // replyId
+            null, // replyId,
+            null // relayNode
         );
         
         meshService.send(endPacket);
@@ -151,7 +152,8 @@ public class ChunkManager {
                 0,  // hopStart
                 0f, // snr
                 0,  // rssi
-                null // replyId
+                null, // replyId,
+                null // relayNode
             );
             
             meshService.send(dp);

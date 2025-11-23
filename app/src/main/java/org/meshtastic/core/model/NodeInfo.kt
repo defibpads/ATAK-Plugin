@@ -19,14 +19,14 @@ package org.meshtastic.core.model
 
 import android.graphics.Color
 import android.os.Parcelable
-import org.meshtastic.proto.ConfigProtos
-import org.meshtastic.proto.MeshProtos
-import org.meshtastic.proto.TelemetryProtos
 import kotlinx.parcelize.Parcelize
 import org.meshtastic.core.model.util.anonymize
 import org.meshtastic.core.model.util.bearing
 import org.meshtastic.core.model.util.latLongToMeter
 import org.meshtastic.core.model.util.onlineTimeThreshold
+import org.meshtastic.proto.ConfigProtos
+import org.meshtastic.proto.MeshProtos
+import org.meshtastic.proto.TelemetryProtos
 
 //
 // model objects that directly map to the corresponding protobufs
@@ -43,11 +43,11 @@ data class MeshUser(
 ) : Parcelable {
 
     override fun toString(): String = "MeshUser(id=${id.anonymize}, " +
-        "longName=${longName.anonymize}, " +
-        "shortName=${shortName.anonymize}, " +
-        "hwModel=$hwModelString, " +
-        "isLicensed=$isLicensed, " +
-        "role=$role)"
+            "longName=${longName.anonymize}, " +
+            "shortName=${shortName.anonymize}, " +
+            "hwModel=$hwModelString, " +
+            "isLicensed=$isLicensed, " +
+            "role=$role)"
 
     /** Create our model object from a protobuf. */
     constructor(p: MeshProtos.User) : this(p.id, p.longName, p.shortName, p.hwModel, p.isLicensed, p.roleValue)
@@ -115,9 +115,9 @@ data class Position(
     // If GPS gives a crap position don't crash our app
     @Suppress("MagicNumber")
     fun isValid(): Boolean = latitude != 0.0 &&
-        longitude != 0.0 &&
-        (latitude >= -90 && latitude <= 90.0) &&
-        (longitude >= -180 && longitude <= 180)
+            longitude != 0.0 &&
+            (latitude >= -90 && latitude <= 90.0) &&
+            (longitude >= -180 && longitude <= 180)
 
     override fun toString(): String =
         "Position(lat=${latitude.anonymize}, lon=${longitude.anonymize}, alt=${altitude.anonymize}, time=$time)"
@@ -167,7 +167,7 @@ data class EnvironmentMetrics(
             EnvironmentMetrics(
                 temperature = proto.temperature.takeIf { proto.hasTemperature() && !it.isNaN() },
                 relativeHumidity =
-                proto.relativeHumidity.takeIf { proto.hasRelativeHumidity() && !it.isNaN() && it != 0.0f },
+                    proto.relativeHumidity.takeIf { proto.hasRelativeHumidity() && !it.isNaN() && it != 0.0f },
                 soilTemperature = proto.soilTemperature.takeIf { proto.hasSoilTemperature() && !it.isNaN() },
                 soilMoisture = proto.soilMoisture.takeIf { proto.hasSoilMoisture() && it != Int.MIN_VALUE },
                 barometricPressure = proto.barometricPressure.takeIf { proto.hasBarometricPressure() && !it.isNaN() },
