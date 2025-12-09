@@ -39,7 +39,7 @@ public class MeshtasticCallback implements SaveAndSendCallback {
         if (FileSystemUtils.isFile(file)) {
             // check file size
             if (FileSystemUtils.getFileSize(file) > 1024 * 56) {
-                Toast.makeText(MapView.getMapView().getContext(), "File is too large to send, 56KB Max", Toast.LENGTH_LONG).show();
+                showToast("File is too large to send, 56KB Max");
                 return;
             }
 
@@ -48,7 +48,7 @@ public class MeshtasticCallback implements SaveAndSendCallback {
             // Check if we're on Short_Turbo modem preset
             byte[] config = MeshtasticMapComponent.getConfig();
             if (config == null || config.length == 0) {
-                Toast.makeText(MapView.getMapView().getContext(), "Cannot get radio config. Is Meshtastic connected?", Toast.LENGTH_LONG).show();
+                showToast("Cannot get radio config. Is Meshtastic connected?");
                 return;
             }
 
@@ -57,7 +57,7 @@ public class MeshtasticCallback implements SaveAndSendCallback {
                 c = LocalOnlyProtos.LocalConfig.parseFrom(config);
             } catch (InvalidProtocolBufferException e) {
                 Log.e(TAG, "Failed to parse config", e);
-                Toast.makeText(MapView.getMapView().getContext(), "Failed to read radio config", Toast.LENGTH_LONG).show();
+                showToast("Failed to read radio config");
                 return;
             }
 
@@ -67,9 +67,7 @@ public class MeshtasticCallback implements SaveAndSendCallback {
             // Check if on Short_Turbo
             if (currentModemPreset != ConfigProtos.Config.LoRaConfig.ModemPreset.SHORT_TURBO_VALUE) {
                 String presetName = lc.getModemPreset().name();
-                Toast.makeText(MapView.getMapView().getContext(),
-                        "File transfer requires Short_Turbo preset.\nCurrently on: " + presetName,
-                        Toast.LENGTH_LONG).show();
+                showToast("File transfer requires Short_Turbo preset.\nCurrently on: " + presetName);
                 Log.w(TAG, "File transfer blocked - not on Short_Turbo. Current preset: " + presetName);
                 return;
             }
@@ -118,5 +116,16 @@ public class MeshtasticCallback implements SaveAndSendCallback {
         } else {
             Log.d(TAG, "Invalid file");
         }
+    }
+
+    /**
+     * Show a toast on the UI thread.
+     * onMissionPackageTaskComplete is called from a background thread,
+     * so we need to post Toast to the UI thread.
+     */
+    private void showToast(String message) {
+        MapView.getMapView().post(() ->
+            Toast.makeText(MapView.getMapView().getContext(), message, Toast.LENGTH_LONG).show()
+        );
     }
 }

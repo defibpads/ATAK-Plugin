@@ -498,20 +498,6 @@ public class MeshtasticMapComponent extends DropDownMapComponent
 
             // Log EXI data details for debugging
             Log.d(TAG, "Sender EXI data: " + cotAsBytes.length + " bytes");
-            if (cotAsBytes.length >= 16) {
-                Log.d(TAG, "Sender EXI first 16 bytes: " + String.format(
-                    "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
-                    cotAsBytes[0], cotAsBytes[1], cotAsBytes[2], cotAsBytes[3],
-                    cotAsBytes[4], cotAsBytes[5], cotAsBytes[6], cotAsBytes[7],
-                    cotAsBytes[8], cotAsBytes[9], cotAsBytes[10], cotAsBytes[11],
-                    cotAsBytes[12], cotAsBytes[13], cotAsBytes[14], cotAsBytes[15]));
-            } else if (cotAsBytes.length >= 4) {
-                Log.d(TAG, "Sender EXI first bytes: " + String.format("%02X %02X %02X %02X",
-                    cotAsBytes[0], cotAsBytes[1], cotAsBytes[2], cotAsBytes[3]));
-            }
-            // Log hash of data for comparison with receiver
-            byte[] senderHash = FountainPacket.computeHash(cotAsBytes);
-            Log.d(TAG, "Sender EXI data hash: " + bytesToHex(senderHash));
 
             int transferId = fountainChunkManager.send(cotAsBytes, channel, hopLimit, Constants.TRANSFER_TYPE_COT);
             if (transferId < 0) {

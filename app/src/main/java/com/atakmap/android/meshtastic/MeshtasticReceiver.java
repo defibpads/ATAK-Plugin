@@ -1457,18 +1457,6 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
 
         // Handle CoT data - try to decode as EXI (compressed XML)
         Log.d(TAG, "Processing fountain CoT data: " + data.length + " bytes from " + senderNodeId);
-        if (data.length >= 16) {
-            Log.d(TAG, "Receiver CoT first 16 bytes: " + String.format(
-                "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
-                data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-                data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15]));
-        } else if (data.length >= 4) {
-            Log.d(TAG, "Receiver CoT first bytes: " + String.format("%02X %02X %02X %02X",
-                data[0], data[1], data[2], data[3]));
-        }
-        // Log hash of received data for comparison with sender
-        byte[] receivedHash = FountainPacket.computeHash(data);
-        Log.d(TAG, "Receiver CoT data hash: " + bytesToHex(receivedHash));
         try {
             EXIFactory exiFactory = DefaultEXIFactory.newInstance();
             StringWriter writer = new StringWriter();
@@ -1484,6 +1472,14 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
             CotEvent cotEvent = CotEvent.parse(xmlStr);
 
             if (cotEvent.isValid()) {
+                CotDetail cotDetail = cotEvent.getDetail();
+                if (cotDetail == null) {
+                    cotDetail = new CotDetail("detail");
+                    cotEvent.setDetail(cotDetail);
+                }
+                CotDetail meshDetail = new CotDetail("__meshtastic");
+                cotDetail.addChild(meshDetail);
+
                 Log.d(TAG, "Fountain CoT Received and dispatched");
                 CotMapComponent.getInternalDispatcher().dispatch(cotEvent);
                 if (prefs.getBoolean(Constants.PREF_PLUGIN_SERVER, false)) {

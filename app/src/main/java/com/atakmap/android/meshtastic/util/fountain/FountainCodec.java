@@ -60,7 +60,16 @@ public class FountainCodec {
 
         for (int i = 0; i < numBlocks; i++) {
             int seed = generateSeed(transferId, i);
-            EncodedBlock block = encodeBlock(sourceBlocks, K, seed, data.length);
+            EncodedBlock block;
+
+            // Force first block to have degree 1 to guarantee peeling decoder can start
+            // This is especially important for small K where random sampling may not
+            // produce any degree-1 blocks in the first few blocks
+            if (i == 0) {
+                block = encodeBlockWithDegree(sourceBlocks, K, seed, data.length, 1);
+            } else {
+                block = encodeBlock(sourceBlocks, K, seed, data.length);
+            }
             encodedBlocks.add(block);
         }
 
@@ -82,6 +91,31 @@ public class FountainCodec {
 
         // Sample degree from Robust Soliton distribution
         int degree = sampleDegree(rng, K);
+
+        // Select which source blocks to XOR
+        int[] indices = selectIndices(rng, K, degree);
+
+        // XOR selected blocks
+        byte[] payload = new byte[blockSize];
+        for (int idx : indices) {
+            xorInPlace(payload, sourceBlocks[idx]);
+        }
+
+        return new EncodedBlock(seed, K, totalLength, indices, payload);
+    }
+
+    /**
+     * Encode a block with a specific forced degree.
+     * Used to guarantee degree-1 blocks for reliable peeling decoder startup.
+     */
+    private EncodedBlock encodeBlockWithDegree(byte[][] sourceBlocks, int K, int seed, int totalLength, int forcedDegree) {
+        Random rng = new Random(seed);
+
+        // Skip the normal degree sampling but consume the random value to keep RNG in sync
+        sampleDegree(rng, K);
+
+        // Use forced degree instead
+        int degree = Math.min(forcedDegree, K);
 
         // Select which source blocks to XOR
         int[] indices = selectIndices(rng, K, degree);
@@ -307,6 +341,39 @@ public class FountainCodec {
     /**
      * Regenerate source indices from seed (for decoder).
      * Uses the same random sequence as encoding.
+     *
+     * @param seed The block's seed
+     * @param K Number of source blocks
+     * @param transferId The transfer ID (used to detect if this is block 0)
+     */
+    public int[] regenerateIndices(int seed, int K, int transferId) {
+        Random rng = new Random(seed);
+
+        // Check if this is block 0 (forced degree 1)
+        // Block 0's seed = (transferId * 31337) & 0xFFFF
+        int block0Seed = (transferId * 31337) & 0xFFFF;
+        boolean isFirstBlock = (seed == block0Seed);
+
+        // Consume the degree sample to keep RNG in sync
+        sampleDegree(rng, K);
+
+        int degree;
+        if (isFirstBlock) {
+            // First block always has forced degree 1
+            degree = 1;
+        } else {
+            // Re-seed and sample again for non-first blocks
+            rng = new Random(seed);
+            degree = sampleDegree(rng, K);
+        }
+
+        return selectIndices(rng, K, degree);
+    }
+
+    /**
+     * Regenerate source indices from seed (for decoder).
+     * Legacy method without transfer ID - cannot detect forced degree blocks.
+     * @deprecated Use regenerateIndices(seed, K, transferId) instead
      */
     public int[] regenerateIndices(int seed, int K) {
         Random rng = new Random(seed);

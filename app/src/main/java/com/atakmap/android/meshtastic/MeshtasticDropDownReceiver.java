@@ -183,27 +183,6 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
                         isRecording.set(false);
                         talk.setText("All Talk");
                         Log.d(TAG, "Recording stopped");
-                        /*
-                        if (codec2_chunks.size() > 0) {
-                            new Thread(() -> {
-                                try {
-                                    Thread.sleep(500);
-                                    byte[] audio = new byte[0];
-                                    for (int i = 0; i < codec2_chunks.size(); i++)
-                                        audio = append(audio, (byte[]) codec2_chunks.get(i));
-                                    Log.d(TAG, "audio total bytes: " + audio.length);
-
-                                    codec2_chunks.clear();
-
-                                    // 0xC2 is my codec2 header
-                                    DataPacket dp = new DataPacket(DataPacket.ID_BROADCAST, append(new byte[]{(byte) 0xC2}, audio), Portnums.PortNum.ATAK_FORWARDER_VALUE, DataPacket.ID_LOCAL, System.currentTimeMillis(), 0, MessageStatus.UNKNOWN, MeshtasticReceiver.getHopLimit(), MeshtasticReceiver.getChannelIndex(), MeshtasticReceiver.getWantsAck(), 0, 0f, 0, null, null, 0, false);
-                                    MeshtasticMapComponent.sendToMesh(dp);
-                                } catch (InterruptedException e) {
-                                    e.printStackTrace();
-                                }
-                            }).start();
-                        }
-                        */
                     }
                 });
             } catch (IOException e) {

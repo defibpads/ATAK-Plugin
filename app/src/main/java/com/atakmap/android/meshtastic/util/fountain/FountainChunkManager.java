@@ -136,19 +136,6 @@ public class FountainChunkManager {
 
         // Log data details for debugging
         Log.d(TAG, "Transfer " + transferId + " dataWithType hash: " + bytesToHex(dataHash));
-        if (dataWithType.length >= 17) {
-            Log.d(TAG, "Transfer " + transferId + " dataWithType first 17 bytes (type+data): " + String.format(
-                "%02X | %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
-                dataWithType[0],  // type byte
-                dataWithType[1], dataWithType[2], dataWithType[3], dataWithType[4],
-                dataWithType[5], dataWithType[6], dataWithType[7], dataWithType[8],
-                dataWithType[9], dataWithType[10], dataWithType[11], dataWithType[12],
-                dataWithType[13], dataWithType[14], dataWithType[15], dataWithType[16]));
-        }
-
-        // Also log original data hash (without type byte) for comparison with receiver callback
-        byte[] originalDataHash = FountainPacket.computeHash(data);
-        Log.d(TAG, "Transfer " + transferId + " original data hash (no type): " + bytesToHex(originalDataHash));
 
         SendState state = new SendState(transferId, dataWithType, dataHash, K, channel, hopLimit);
         sendStates.put(transferId, state);
@@ -288,7 +275,8 @@ public class FountainChunkManager {
         });
 
         // Regenerate source indices from seed (use codec to ensure same algorithm)
-        int[] sourceIndices = codec.regenerateIndices(dataBlock.seed, dataBlock.sourceBlockCount);
+        // Pass transferId so codec can detect if this is block 0 (forced degree 1)
+        int[] sourceIndices = codec.regenerateIndices(dataBlock.seed, dataBlock.sourceBlockCount, transferId);
 
         // Log block details for debugging
         StringBuilder indicesStr = new StringBuilder();
