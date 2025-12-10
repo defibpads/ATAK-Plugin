@@ -33,21 +33,28 @@ public class MeshtasticWidget extends MarkerIconWidget {
 
     public void setIcon(String color) {
         String imageUri;
-        if (color.equalsIgnoreCase("red"))
+        int iconColor;
+
+        if (color.equalsIgnoreCase("red")) {
             imageUri = "android.resource://com.atakmap.android.meshtastic.plugin/" + R.drawable.ic_red;
-        else {
+            iconColor = Color.RED;
+        } else if (color.equalsIgnoreCase("blue")) {
+            // Blue indicates active transfer (receiving/sending chunked data)
             imageUri = "android.resource://com.atakmap.android.meshtastic.plugin/" + R.drawable.ic_green;
+            iconColor = Color.BLUE;
+        } else if (color.equalsIgnoreCase("yellow")) {
+            // Yellow indicates active transfer (alternative color)
+            imageUri = "android.resource://com.atakmap.android.meshtastic.plugin/" + R.drawable.ic_green;
+            iconColor = Color.YELLOW;
+        } else {
+            imageUri = "android.resource://com.atakmap.android.meshtastic.plugin/" + R.drawable.ic_green;
+            iconColor = Color.GREEN;
         }
 
-        Log.d(TAG, "imageURi " + imageUri);
+        Log.d(TAG, "imageURi " + imageUri + ", color=" + color);
         Icon.Builder builder = new Icon.Builder();
         builder.setAnchor(0, 0);
-
-        if (color.equalsIgnoreCase("red"))
-            builder.setColor(Icon.STATE_DEFAULT, Color.RED);
-        else
-            builder.setColor(Icon.STATE_DEFAULT, Color.GREEN);
-
+        builder.setColor(Icon.STATE_DEFAULT, iconColor);
         builder.setSize(ICON_WIDTH, ICON_HEIGHT);
         builder.setImageUri(Icon.STATE_DEFAULT, imageUri);
 

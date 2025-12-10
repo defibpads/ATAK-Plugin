@@ -281,12 +281,15 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             // Update last PLI time
             cotEventProcessor.setLastPLITime(currentTime);
 
-        } else if (type.equalsIgnoreCase("b-t-f") && uid.contains("All Chat Rooms")) {
+        } else if (uid.contains("All Chat Rooms")) {
             // All Chat Rooms message
             handleAllChatMessage(parsedData, hopLimit, channel);
-        } else if (type.equalsIgnoreCase("b-t-f")) {
-            // Direct message chat
+        } else if (type.equalsIgnoreCase("b-t-f-p")) {
+            // Direct message chat (pending)
             handleDirectMessage(parsedData, hopLimit, channel);
+        } else if (type.equalsIgnoreCase("b-t-f-d") || type.equalsIgnoreCase("b-t-f-r")) {
+            // Chat receipts: b-t-f-d = delivered, b-t-f-r = read
+            handleChatReceipt(cotEvent, hopLimit, channel);
         } else {
             // Other CoT events
             if (prefs.getBoolean(Constants.PREF_PLUGIN_PLICHAT_ONLY, false)) {
@@ -420,6 +423,94 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             );
         }
         
+        meshServiceManager.sendToMesh(dp);
+    }
+
+    private void handleChatReceipt(CotEvent cotEvent, int hopLimit, int channel) {
+        // Chat receipts (delivered/read) need to be forwarded to maintain read receipt functionality
+        // We use a special message format: "ACK:<type>:<messageId>" to send receipts compactly
+        // Type is "D" for delivered, "R" for read
+        String type = cotEvent.getType();
+        Log.d(TAG, "Sending chat receipt (" + type + ") to Meshtastic");
+
+        CotDetail cotDetail = cotEvent.getDetail();
+        if (cotDetail == null) {
+            Log.w(TAG, "Chat receipt has no detail, skipping");
+            return;
+        }
+
+        // Get the messageId from __chat detail
+        CotDetail chatDetail = cotDetail.getFirstChildByName(0, "__chat");
+        if (chatDetail == null) {
+            Log.w(TAG, "Chat receipt has no __chat detail, skipping");
+            return;
+        }
+
+        String messageId = chatDetail.getAttribute("messageId");
+        if (messageId == null || messageId.isEmpty()) {
+            Log.w(TAG, "Chat receipt has no messageId, skipping");
+            return;
+        }
+
+        // Get recipient (who we're sending the receipt to)
+        String to = chatDetail.getAttribute("chatroom");
+        if (to == null || to.isEmpty()) {
+            // Try to get from chatgrp
+            CotDetail chatgrp = chatDetail.getFirstChildByName(0, "chatgrp");
+            if (chatgrp != null) {
+                to = chatgrp.getAttribute("uid1");
+            }
+        }
+
+        if (to == null || to.isEmpty()) {
+            Log.w(TAG, "Chat receipt has no recipient, skipping");
+            return;
+        }
+
+        // Build receipt message: "ACK:D:<messageId>" or "ACK:R:<messageId>"
+        String receiptType = type.equalsIgnoreCase("b-t-f-d") ? "D" : "R";
+        String receiptMessage = "ACK:" + receiptType + ":" + messageId;
+
+        // Build TAKPacket with the receipt message
+        ATAKProtos.GeoChat.Builder geoChatBuilder = ATAKProtos.GeoChat.newBuilder()
+            .setMessage(receiptMessage)
+            .setTo(to);
+
+        // Get sender info
+        String selfCallsign = MapView.getMapView().getDeviceCallsign();
+        String selfUid = MapView.getMapView().getSelfMarker().getUID();
+
+        ATAKProtos.Contact.Builder contactBuilder = ATAKProtos.Contact.newBuilder()
+            .setCallsign(selfCallsign)
+            .setDeviceCallsign(selfUid);
+
+        ATAKProtos.TAKPacket takPacket = ATAKProtos.TAKPacket.newBuilder()
+            .setContact(contactBuilder.build())
+            .setChat(geoChatBuilder.build())
+            .build();
+
+        Log.d(TAG, "Chat receipt TAKPacket size: " + takPacket.toByteArray().length + " bytes");
+
+        DataPacket dp = new DataPacket(
+            DataPacket.ID_BROADCAST,
+            takPacket.toByteArray(),
+            Portnums.PortNum.ATAK_PLUGIN_VALUE,
+            DataPacket.ID_LOCAL,
+            System.currentTimeMillis(),
+            0,
+            MessageStatus.UNKNOWN,
+            hopLimit,
+            channel,
+            false,  // No ACK needed for receipts
+            0,  // hopStart
+            0f, // snr
+            0,  // rssi
+            null, // replyId,
+            null, // relayNode
+            0,    // relays
+            false // viaMqtt
+        );
+
         meshServiceManager.sendToMesh(dp);
     }
 

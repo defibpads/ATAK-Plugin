@@ -20,6 +20,7 @@ import android.content.pm.PackageManager;
 import com.atakmap.android.maps.tilesets.EquirectangularTilesetSupport;
 import com.atakmap.android.meshtastic.util.Constants;
 import com.atakmap.android.meshtastic.util.FileTransferManager;
+import com.atakmap.android.meshtastic.util.NotificationHelper;
 import com.atakmap.android.meshtastic.util.fountain.FountainChunkManager;
 import com.atakmap.android.meshtastic.util.fountain.FountainPacket;
 import android.media.AudioAttributes;
@@ -174,27 +175,98 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
         // Set up fountain chunk manager callback to process received data
         if (fountainChunkManager != null) {
             fountainChunkManager.setCallback(new FountainChunkManager.TransferCallback() {
+                // Track if we've shown a notification for this transfer (for >5 block transfers)
+                private int activeReceiveTransferId = -1;
+                // Track total blocks for determining small vs large transfer
+                private int lastKnownTotal = 0;
+
                 @Override
                 public void onTransferComplete(int transferId, byte[] data, String senderNodeId, byte transferType) {
                     if (data == null) {
                         // This is a send completion, not receive
                         Log.d(TAG, "Fountain send transfer " + transferId + " completed");
+                        // Reset widget to green after send completes
+                        resetWidgetToGreen();
                         return;
                     }
                     Log.d(TAG, "Fountain receive transfer " + transferId + " completed, " +
                               data.length + " bytes from " + senderNodeId + ", type=" + transferType);
+
+                    // Reset widget to green
+                    resetWidgetToGreen();
+
+                    // Show completion notification/toast based on transfer size
+                    if (activeReceiveTransferId == transferId) {
+                        // Large transfer (>5 blocks) - use notification
+                        NotificationHelper.getInstance(MapView.getMapView().getContext())
+                            .showReceiveCompletionNotification();
+                        activeReceiveTransferId = -1;
+                    } else if (lastKnownTotal > 0 && lastKnownTotal <= 5) {
+                        // Small transfer (<=5 blocks) - use toast
+                        showToast("Meshtastic: Data received successfully");
+                    }
+                    lastKnownTotal = 0;
+
                     processFountainData(data, senderNodeId, transferType);
                 }
 
                 @Override
                 public void onTransferFailed(int transferId, String reason) {
                     Log.e(TAG, "Fountain transfer " + transferId + " failed: " + reason);
+
+                    // Reset widget to green
+                    resetWidgetToGreen();
+
+                    // Show failure notification/toast based on transfer size
+                    if (activeReceiveTransferId == transferId) {
+                        // Large transfer (>5 blocks) - use notification
+                        NotificationHelper.getInstance(MapView.getMapView().getContext())
+                            .showReceiveFailedNotification(reason);
+                        activeReceiveTransferId = -1;
+                    } else if (lastKnownTotal > 0 && lastKnownTotal <= 5) {
+                        // Small transfer (<=5 blocks) - use toast
+                        showToast("Meshtastic: Transfer failed - " + reason);
+                    }
+                    lastKnownTotal = 0;
                 }
 
                 @Override
                 public void onProgress(int transferId, int received, int total, boolean isSending) {
                     Log.v(TAG, "Fountain transfer " + transferId + ": " + received + "/" + total +
                               (isSending ? " (sending)" : " (receiving)"));
+
+                    // Track total for completion/failure handling
+                    if (!isSending) {
+                        lastKnownTotal = total;
+                    }
+
+                    // Update widget to blue to indicate active transfer
+                    MapView.getMapView().post(() -> {
+                        if (MeshtasticMapComponent.mw != null) {
+                            MeshtasticMapComponent.mw.setIcon("blue");
+                        }
+                    });
+
+                    // For receiving transfers with >5 blocks, show notification with progress
+                    if (!isSending && total > 5) {
+                        activeReceiveTransferId = transferId;
+                        NotificationHelper.getInstance(MapView.getMapView().getContext())
+                            .showReceiveProgressNotification(received, total);
+                    }
+                }
+
+                private void resetWidgetToGreen() {
+                    MapView.getMapView().post(() -> {
+                        if (MeshtasticMapComponent.mw != null) {
+                            MeshtasticMapComponent.mw.setIcon("green");
+                        }
+                    });
+                }
+
+                private void showToast(String message) {
+                    MapView.getMapView().post(() ->
+                        Toast.makeText(MapView.getMapView().getContext(), message, Toast.LENGTH_SHORT).show()
+                    );
                 }
             });
         }
@@ -1099,15 +1171,23 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                         Log.e(TAG, "cotEvent was not valid");
 
                 } else if (tp.hasChat() && tp.getChat().getTo().equals(getMapView().getSelfMarker().getUID())) {
-                    Log.d(TAG, "TAK_PACKET GEOCHAT - DM");
-
                     ATAKProtos.Contact contact = tp.getContact();
                     ATAKProtos.GeoChat geoChat = tp.getChat();
+                    String message = geoChat.getMessage();
+
+                    // Check if this is a chat receipt (ACK:D:<messageId> or ACK:R:<messageId>)
+                    if (message != null && message.startsWith("ACK:")) {
+                        Log.d(TAG, "TAK_PACKET GEOCHAT - Receipt: " + message);
+                        handleChatReceiptPacket(contact, message);
+                        return;
+                    }
+
+                    Log.d(TAG, "TAK_PACKET GEOCHAT - DM");
 
                     String to = geoChat.getTo();
                     String callsign = contact.getCallsign();
                     String deviceCallsign = contact.getDeviceCallsign();
-                    String msgId = callsign + "-" + deviceCallsign + "-" + geoChat.getMessage().hashCode() + "-" + System.currentTimeMillis();
+                    String msgId = callsign + "-" + deviceCallsign + "-" + message.hashCode() + "-" + System.currentTimeMillis();
 
                     // Store nodeId -> ATAK info mapping for TEXT_MESSAGE_APP sender lookup
                     String senderNodeId = payload.getFrom();
@@ -1125,12 +1205,12 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     //}
 
                     if (prefs.getBoolean(Constants.PREF_PLUGIN_VOICE, false)) {
-                        StringBuilder message = new StringBuilder();
-                        message.append("GeoChat from ");
-                        message.append(callsign);
-                        message.append(" ");
-                        message.append(geoChat.getMessage());
-                        MeshtasticDropDownReceiver.t1.speak(message.toString(), TextToSpeech.QUEUE_FLUSH, null);
+                        StringBuilder voiceMessage = new StringBuilder();
+                        voiceMessage.append("GeoChat from ");
+                        voiceMessage.append(callsign);
+                        voiceMessage.append(" ");
+                        voiceMessage.append(message);
+                        MeshtasticDropDownReceiver.t1.speak(voiceMessage.toString(), TextToSpeech.QUEUE_FLUSH, null);
                     }
 
                     CoordinatedTime time = new CoordinatedTime();
@@ -1165,7 +1245,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     remarksDetail.setAttribute("source", String.format("BAO.F.ATAK.%s", deviceCallsign));
                     remarksDetail.setAttribute("to", to);
                     remarksDetail.setAttribute("time", time.toString());
-                    remarksDetail.setInnerText(geoChat.getMessage());
+                    remarksDetail.setInnerText(message);
                     cotDetail.addChild(remarksDetail);
 
                     CotDetail meshDetail = new CotDetail("__meshtastic");
@@ -1593,6 +1673,85 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
 
         // Fallback to node ID
         return nodeId;
+    }
+
+    /**
+     * Handle a chat receipt packet received over Meshtastic.
+     * Receipt format: "ACK:D:<messageId>" for delivered, "ACK:R:<messageId>" for read
+     *
+     * @param contact The sender contact info
+     * @param receiptMessage The receipt message in format "ACK:D:<messageId>" or "ACK:R:<messageId>"
+     */
+    private void handleChatReceiptPacket(ATAKProtos.Contact contact, String receiptMessage) {
+        // Parse receipt: "ACK:D:<messageId>" or "ACK:R:<messageId>"
+        String[] parts = receiptMessage.split(":", 3);
+        if (parts.length != 3) {
+            Log.w(TAG, "Invalid receipt format: " + receiptMessage);
+            return;
+        }
+
+        String receiptType = parts[1];  // "D" or "R"
+        String messageId = parts[2];
+
+        String cotType;
+        if ("D".equals(receiptType)) {
+            cotType = "b-t-f-d";  // Delivered
+        } else if ("R".equals(receiptType)) {
+            cotType = "b-t-f-r";  // Read
+        } else {
+            Log.w(TAG, "Unknown receipt type: " + receiptType);
+            return;
+        }
+
+        String senderCallsign = contact.getCallsign();
+        String senderUid = contact.getDeviceCallsign();
+
+        Log.d(TAG, "Processing chat receipt: type=" + cotType + ", messageId=" + messageId +
+                  ", from=" + senderCallsign + " (" + senderUid + ")");
+
+        // Build CoT event for the receipt
+        CoordinatedTime time = new CoordinatedTime();
+
+        CotDetail cotDetail = new CotDetail("detail");
+
+        // __chat detail with messageId
+        CotDetail chatDetail = new CotDetail("__chat");
+        chatDetail.setAttribute("messageId", messageId);
+        chatDetail.setAttribute("parent", "RootContactGroup");
+        chatDetail.setAttribute("groupOwner", "false");
+        chatDetail.setAttribute("senderCallsign", senderCallsign);
+        cotDetail.addChild(chatDetail);
+
+        // chatgrp with sender info
+        CotDetail chatgrp = new CotDetail("chatgrp");
+        chatgrp.setAttribute("uid0", senderUid);
+        chatgrp.setAttribute("uid1", getMapView().getSelfMarker().getUID());
+        chatDetail.addChild(chatgrp);
+
+        // __meshtastic marker
+        CotDetail meshDetail = new CotDetail("__meshtastic");
+        cotDetail.addChild(meshDetail);
+
+        CotEvent cotEvent = new CotEvent();
+        cotEvent.setDetail(cotDetail);
+        // Receipt UID format from ATAK: typically same as the message being acknowledged
+        cotEvent.setUID(messageId);
+        cotEvent.setTime(time);
+        cotEvent.setStart(time);
+        cotEvent.setStale(time.addMinutes(1));  // Short stale time for receipts
+        cotEvent.setType(cotType);
+        cotEvent.setHow("h-g-i-g-o");
+
+        CotPoint cotPoint = new CotPoint(0, 0, CotPoint.UNKNOWN,
+                CotPoint.UNKNOWN, CotPoint.UNKNOWN);
+        cotEvent.setPoint(cotPoint);
+
+        if (cotEvent.isValid()) {
+            Log.d(TAG, "Dispatching chat receipt CoT event: " + cotType);
+            CotMapComponent.getInternalDispatcher().dispatch(cotEvent);
+        } else {
+            Log.e(TAG, "Chat receipt CoT event was not valid");
+        }
     }
 
     /**
