@@ -129,4 +129,21 @@
         android:summary="Use Meshtastic device GPS as ATAK's external GPS source"
         android:defaultValue="false"/>
 
+    <!-- Encryption Settings -->
+    <PreferenceCategory android:title="Encryption" />
+
+    <com.atakmap.android.gui.PanSwitchPreference
+        android:key="plugin_meshtastic_extra_encryption"
+        android:title="Enable Extra Encryption"
+        android:summary="Encrypt all outgoing messages with AES-256-GCM using PSK"
+        android:defaultValue="false"/>
+
+    <com.atakmap.android.gui.PanEditTextPreference
+        android:key="plugin_meshtastic_encryption_psk"
+        android:title="Encryption PSK"
+        android:summary="Pre-shared key for encryption (all users must have same key)"
+        android:dialogTitle="Encryption PSK"
+        android:inputType="textPassword"
+        android:defaultValue=""/>
+
 </PreferenceScreen>

@@ -19,6 +19,7 @@ import android.content.pm.PackageManager;
 
 import com.atakmap.android.maps.tilesets.EquirectangularTilesetSupport;
 import com.atakmap.android.meshtastic.util.Constants;
+import com.atakmap.android.meshtastic.util.CryptoUtils;
 import com.atakmap.android.meshtastic.util.FileTransferManager;
 import com.atakmap.android.meshtastic.util.NotificationHelper;
 import com.atakmap.android.meshtastic.util.fountain.FountainChunkManager;
@@ -826,8 +827,60 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                 // Sender side - received file transfer acknowledgment
                 Log.d(TAG, "Received MFT - file transfer complete");
                 FileTransferManager.getInstance().completeTransfer();
+            } else if (CryptoUtils.isEncrypted(raw)) {
+                // Encrypted message - try to decrypt
+                Log.d(TAG, "Received encrypted message");
+                String psk = prefs.getString(Constants.PREF_PLUGIN_ENCRYPTION_PSK, "");
+                if (psk == null || psk.isEmpty()) {
+                    Log.w(TAG, "Received encrypted message but no PSK configured - cannot decrypt");
+                    return;
+                }
+
+                byte[] decrypted = CryptoUtils.decrypt(raw, psk);
+                if (decrypted == null) {
+                    Log.w(TAG, "Failed to decrypt message - wrong PSK or corrupted data");
+                    return;
+                }
+
+                // Decrypted data is EXI-compressed CoT - decode it
+                try {
+                    EXIFactory exiFactory = DefaultEXIFactory.newInstance();
+                    StringWriter writer = new StringWriter();
+                    Result result = new StreamResult(writer);
+                    InputSource is = new InputSource(new ByteArrayInputStream(decrypted));
+                    SAXSource exiSource = new EXISource(exiFactory);
+                    exiSource.setInputSource(is);
+                    TransformerFactory tf = XMLUtils.getTransformerFactory();
+                    Transformer transformer = tf.newTransformer();
+                    transformer.transform(exiSource, result);
+                    String xmlStr = writer.toString();
+                    Log.d(TAG, "Decrypted EXI to XML: " + xmlStr.length() + " chars");
+
+                    CotEvent cotEvent = CotEvent.parse(xmlStr);
+                    if (cotEvent.isValid()) {
+                        // Add meshtastic marker to prevent re-forwarding
+                        CotDetail cotDetail = cotEvent.getDetail();
+                        if (cotDetail == null) {
+                            cotDetail = new CotDetail("detail");
+                            cotEvent.setDetail(cotDetail);
+                        }
+                        CotDetail meshDetail = new CotDetail("__meshtastic");
+                        cotDetail.addChild(meshDetail);
+
+                        Log.d(TAG, "Dispatching decrypted CoT event");
+                        CotMapComponent.getInternalDispatcher().dispatch(cotEvent);
+                        if (prefs.getBoolean(Constants.PREF_PLUGIN_SERVER, false)) {
+                            CotMapComponent.getExternalDispatcher().dispatch(cotEvent);
+                        }
+                    } else {
+                        Log.w(TAG, "Decrypted CoT event is not valid");
+                    }
+                } catch (Throwable e) {
+                    Log.e(TAG, "Failed to decode decrypted EXI data", e);
+                    e.printStackTrace();
+                }
             } else {
-                // Try to decode as EXI (compressed XML CoT)
+                // Try to decode as EXI (compressed XML CoT) - unencrypted
                 try {
                     EXIFactory exiFactory = DefaultEXIFactory.newInstance();
                     StringWriter writer = new StringWriter();
@@ -1544,13 +1597,35 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
             return;
         }
 
-        // Handle CoT data - try to decode as EXI (compressed XML)
+        // Handle CoT data - check if encrypted first
         Log.d(TAG, "Processing fountain CoT data: " + data.length + " bytes from " + senderNodeId);
+
+        byte[] exiData = data;
+
+        // Check if data is encrypted
+        if (CryptoUtils.isEncrypted(data)) {
+            Log.d(TAG, "Fountain data is encrypted - attempting decryption");
+            String psk = prefs.getString(Constants.PREF_PLUGIN_ENCRYPTION_PSK, "");
+            if (psk == null || psk.isEmpty()) {
+                Log.w(TAG, "Received encrypted fountain data but no PSK configured - cannot decrypt");
+                return;
+            }
+
+            byte[] decrypted = CryptoUtils.decrypt(data, psk);
+            if (decrypted == null) {
+                Log.w(TAG, "Failed to decrypt fountain data - wrong PSK or corrupted data");
+                return;
+            }
+            Log.d(TAG, "Fountain data decrypted: " + decrypted.length + " bytes");
+            exiData = decrypted;
+        }
+
+        // Try to decode as EXI (compressed XML)
         try {
             EXIFactory exiFactory = DefaultEXIFactory.newInstance();
             StringWriter writer = new StringWriter();
             Result result = new StreamResult(writer);
-            InputSource is = new InputSource(new ByteArrayInputStream(data));
+            InputSource is = new InputSource(new ByteArrayInputStream(exiData));
             SAXSource exiSource = new EXISource(exiFactory);
             exiSource.setInputSource(is);
             TransformerFactory tf = XMLUtils.getTransformerFactory();
@@ -1575,7 +1650,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     CotMapComponent.getExternalDispatcher().dispatch(cotEvent);
                 }
             } else {
-                Log.w(TAG, "Fountain data not valid CoT: " + data.length + " bytes, xml=" + xmlStr.substring(0, Math.min(200, xmlStr.length())));
+                Log.w(TAG, "Fountain data not valid CoT: " + exiData.length + " bytes, xml=" + xmlStr.substring(0, Math.min(200, xmlStr.length())));
             }
         } catch (Throwable e) {
             Log.e(TAG, "Failed to process fountain data as EXI: " + e.getClass().getName() + ": " + e.getMessage());

@@ -19,6 +19,7 @@ import com.atakmap.android.meshtastic.service.MeshServiceManager;
 import com.atakmap.android.meshtastic.util.fountain.FountainChunkManager;
 import com.atakmap.android.meshtastic.util.fountain.FountainPacket;
 import com.atakmap.android.meshtastic.util.Constants;
+import com.atakmap.android.meshtastic.util.CryptoUtils;
 import com.atakmap.android.meshtastic.util.NotificationHelper;
 import com.atakmap.app.preferences.ToolsPreferenceFragment;
 import com.atakmap.comms.CommsMapComponent;
@@ -245,12 +246,23 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         
         int hopLimit = MeshtasticReceiver.getHopLimit();
         int channel = MeshtasticReceiver.getChannelIndex();
-        
+
         Log.d(TAG, cotEvent.toString());
         if (cotDetail != null) {
             Log.d(TAG, cotDetail.toString());
         }
-        
+
+        // Check if extra encryption mode is enabled
+        if (prefs.getBoolean(Constants.PREF_PLUGIN_EXTRA_ENCRYPTION, false)) {
+            String psk = prefs.getString(Constants.PREF_PLUGIN_ENCRYPTION_PSK, "");
+            if (psk != null && !psk.isEmpty()) {
+                handleEncryptedMessage(cotEvent, hopLimit, channel, psk);
+                return;
+            } else {
+                Log.w(TAG, "Extra encryption enabled but PSK is empty - sending unencrypted");
+            }
+        }
+
         // Parse the CoT event
         CotEventProcessor.ParsedCotData parsedData = cotEventProcessor.parseCotEvent(cotEvent);
 
@@ -607,7 +619,105 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             editor.apply();
         });
     }
-    
+
+    /**
+     * Handle outgoing messages with extra encryption enabled.
+     * All messages are EXI compressed, encrypted with AES-256-GCM, and sent via ATAK_FORWARDER.
+     */
+    private void handleEncryptedMessage(CotEvent cotEvent, int hopLimit, int channel, String psk) {
+        if (prefs.getBoolean(Constants.PREF_PLUGIN_CHUNKING, false)) {
+            Log.d(TAG, "Chunking already in progress");
+            return;
+        }
+
+        executorService.execute(() -> {
+            Log.d(TAG, "Sending encrypted message");
+
+            byte[] cotAsBytes;
+            try {
+                // Compress CoT to EXI format
+                EXIFactory exiFactory = DefaultEXIFactory.newInstance();
+                ByteArrayOutputStream osEXI = new ByteArrayOutputStream();
+                EXIResult exiResult = new EXIResult(exiFactory);
+                exiResult.setOutputStream(osEXI);
+
+                SAXParserFactory saxParserFactory = SAXParserFactory.newInstance();
+                saxParserFactory.setNamespaceAware(true);
+                try {
+                    saxParserFactory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+                    saxParserFactory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+                    saxParserFactory.setFeature("http://xml.org/sax/features/validation", false);
+                    saxParserFactory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to configure secure SAXParserFactory", e);
+                }
+                SAXParser newSAXParser = saxParserFactory.newSAXParser();
+                XMLReader xmlReader = newSAXParser.getXMLReader();
+                xmlReader.setContentHandler(exiResult.getHandler());
+
+                InputSource stream = new InputSource(new StringReader(cotEvent.toString()));
+                xmlReader.parse(stream);
+                cotAsBytes = osEXI.toByteArray();
+                osEXI.close();
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to compress CoT event", e);
+                return;
+            }
+
+            Log.d(TAG, "EXI compressed size: " + cotAsBytes.length);
+
+            // Encrypt the EXI data
+            byte[] encryptedBytes = CryptoUtils.encrypt(cotAsBytes, psk);
+            if (encryptedBytes == null) {
+                Log.e(TAG, "Failed to encrypt message");
+                return;
+            }
+
+            Log.d(TAG, "Encrypted size: " + encryptedBytes.length);
+
+            // Small messages can be sent directly (max payload is 233 bytes)
+            if (encryptedBytes.length < 233) {
+                Log.d(TAG, "Sending small encrypted message directly");
+                DataPacket dp = new DataPacket(
+                    DataPacket.ID_BROADCAST,
+                    encryptedBytes,
+                    Portnums.PortNum.ATAK_FORWARDER_VALUE,
+                    DataPacket.ID_LOCAL,
+                    System.currentTimeMillis(),
+                    0,
+                    MessageStatus.UNKNOWN,
+                    hopLimit,
+                    channel,
+                    MeshtasticReceiver.getWantsAck(),
+                    0,  // hopStart
+                    0f, // snr
+                    0,  // rssi
+                    null, // replyId,
+                    null, // relayNode
+                    0,    // relays
+                    false // viaMqtt
+                );
+                meshServiceManager.sendToMesh(dp);
+                return;
+            }
+
+            // Large encrypted messages need fountain coding
+            Log.d(TAG, "Large encrypted message - using fountain coding");
+            editor.putBoolean(Constants.PREF_PLUGIN_CHUNKING, true);
+            editor.apply();
+
+            int transferId = fountainChunkManager.send(encryptedBytes, channel, hopLimit, Constants.TRANSFER_TYPE_COT);
+            if (transferId < 0) {
+                Log.e(TAG, "Failed to start fountain transfer for encrypted message");
+            } else {
+                Log.d(TAG, "Started fountain transfer " + transferId + " for encrypted message");
+            }
+
+            editor.putBoolean(Constants.PREF_PLUGIN_CHUNKING, false);
+            editor.apply();
+        });
+    }
+
     @Override
     public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
         if (key == null) return;

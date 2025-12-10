@@ -70,6 +70,11 @@ public final class Constants {
     public static final String PREF_PLUGIN_FILTER_BY_CHANNEL = "plugin_meshtastic_channel_filter";
     public static final String PREF_PLUGIN_FILE_TRANSFER = "plugin_meshtastic_file_transfer";
     public static final String PREF_PLUGIN_LOCAL_NODE_ID = "plugin_meshtastic_local_node_id";
+    public static final String PREF_PLUGIN_EXTRA_ENCRYPTION = "plugin_meshtastic_extra_encryption";
+    public static final String PREF_PLUGIN_ENCRYPTION_PSK = "plugin_meshtastic_encryption_psk";
+
+    // Encrypted message prefix (to identify encrypted payloads)
+    public static final byte ENCRYPTED_MESSAGE_MARKER = (byte) 0xEE;
 
 
     // ATAK Intent
