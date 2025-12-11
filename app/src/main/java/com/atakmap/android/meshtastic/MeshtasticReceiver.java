@@ -178,9 +178,14 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
             fountainChunkManager.setCallback(new FountainChunkManager.TransferCallback() {
                 // Track if we've shown a notification for this transfer (for >5 block transfers)
                 private int activeReceiveTransferId = -1;
+                // Track transfers we've already shown failure for (prevent duplicate toasts)
+                private final java.util.Set<Integer> failedTransfers = new java.util.HashSet<>();
 
                 @Override
                 public void onTransferComplete(int transferId, byte[] data, String senderNodeId, byte transferType) {
+                    // Clean up failure tracking
+                    failedTransfers.remove(transferId);
+
                     if (data == null) {
                         // This is a send completion, not receive
                         Log.d(TAG, "Fountain send transfer " + transferId + " completed");
@@ -202,6 +207,13 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                 @Override
                 public void onTransferFailed(int transferId, String reason) {
                     Log.e(TAG, "Fountain transfer " + transferId + " failed: " + reason);
+
+                    // Check if we've already shown failure for this transfer
+                    if (failedTransfers.contains(transferId)) {
+                        Log.d(TAG, "Already showed failure for transfer " + transferId + ", skipping");
+                        return;
+                    }
+                    failedTransfers.add(transferId);
 
                     // Show failure notification/toast
                     if (activeReceiveTransferId == transferId) {

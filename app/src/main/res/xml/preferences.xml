@@ -41,7 +41,7 @@
         android:key="plugin_meshtastic_pli_rate_limit"
         android:title="Limit PLI Reporting Rate"
         android:summary="Reduce PLI frequency to conserve mesh bandwidth"
-        android:defaultValue="false"/>
+        android:defaultValue="true"/>
 
     <com.atakmap.android.gui.PanListPreference
         android:key="plugin_meshtastic_pli_rate_limit_value"
@@ -56,7 +56,7 @@
         android:key="plugin_meshtastic_plichat_only"
         android:title="Only Send PLI and Chat"
         android:summary="Use optimized protobuf format (recommended for Meshtastic)"
-        android:defaultValue="true"/>
+        android:defaultValue="false"/>
 
     <!-- Display Settings -->
     <PreferenceCategory android:title="Display Settings" />
@@ -65,7 +65,7 @@
         android:key="plugin_meshtastic_tracker"
         android:title="Show Meshtastic Devices"
         android:summary="Display all Meshtastic nodes as markers on the map"
-        android:defaultValue="false"/>
+        android:defaultValue="true"/>
 
     <com.atakmap.android.gui.PanSwitchPreference
         android:key="plugin_meshtastic_nogps"
