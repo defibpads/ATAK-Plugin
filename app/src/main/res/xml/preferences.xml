@@ -58,6 +58,12 @@
         android:summary="Use optimized protobuf format (recommended for Meshtastic)"
         android:defaultValue="false"/>
 
+    <com.atakmap.android.gui.PanSwitchPreference
+        android:key="plugin_meshtastic_chat_receipts"
+        android:title="Send Read/Delivery Receipts"
+        android:summary="Send delivery and read receipts for chat messages"
+        android:defaultValue="true"/>
+
     <!-- Display Settings -->
     <PreferenceCategory android:title="Display Settings" />
 

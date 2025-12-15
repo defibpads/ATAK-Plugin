@@ -575,6 +575,12 @@ public class MeshtasticMapComponent extends DropDownMapComponent
     }
 
     private void handleChatReceipt(CotEvent cotEvent, int hopLimit, int channel) {
+        // Check if chat receipts are enabled
+        if (!prefs.getBoolean(Constants.PREF_PLUGIN_CHAT_RECEIPTS, true)) {
+            Log.d(TAG, "Chat receipts disabled, skipping");
+            return;
+        }
+
         // Chat receipts (delivered/read) need to be forwarded to maintain read receipt functionality
         // We use a special message format: "ACK:<type>:<messageId>" to send receipts compactly
         // Type is "D" for delivered, "R" for read

@@ -38,29 +38,40 @@ The plugin has been refactored for better maintainability and performance:
 
 Access plugin settings via: **Settings → Tool Preferences → Specific Tool Preferences → Meshtastic Preferences**
 
-#### Connection Settings
-- **Meshtastic Channel Index** - Select which Meshtastic channel to use (0-7, default: 0)
-- **Meshtastic Hop Limit** - Set maximum hop count for messages (1-8, default: 3)
-- **Request ACK** - Request acknowledgment for outgoing messages
+#### Mesh Settings
+- **Meshtastic Channel Index** - Select the Meshtastic channel to use for ATAK traffic (0-7, default: 0)
+- **Filter by Channel Index** - Only receive messages from the specified channel (default: off)
+- **Hop Limit** - Maximum number of hops for outgoing messages (1-7, default: 3)
+- **Request ACK** - Request delivery acknowledgment, increases channel usage (default: off)
+
+#### PLI & Reporting
+- **Limit PLI Reporting Rate** - Reduce PLI frequency to conserve mesh bandwidth (default: on)
+- **PLI Reporting Interval** - How often to send position updates (30s to 30min, default: 5min)
+- **Only Send PLI and Chat** - Use optimized protobuf format, recommended for Meshtastic (default: off)
+- **Send Read/Delivery Receipts** - Send delivery and read receipts for chat messages (default: on)
 
 #### Display Settings
-- **Show All Meshtastic Devices** - Display all Meshtastic nodes as sensor markers on map
-- **Do Not Show Devices Without GPS** - Hide nodes reporting 0,0 coordinates
-- **Do Not Show Your Local Node** - Hide your own Meshtastic device from map
+- **Show Meshtastic Devices** - Display all Meshtastic nodes as markers on the map (default: on)
+- **Hide Devices Without GPS** - Don't show nodes reporting 0,0 coordinates (default: off)
+- **Hide Local Node** - Don't show your own Meshtastic device on map (default: off)
 
-#### Relay Settings
-- **Enable Relay to Server** - Forward CoT events (except DMs) to connected TAK servers
-- **Enable Relay from Server** - Forward PLI and chat messages from TAK servers to mesh
+#### Server Relay
+- **Relay to Server** - Forward messages from Meshtastic to connected TAK servers (default: off)
+- **Relay from Server** - Forward PLI and chat from TAK servers to Meshtastic (default: off)
 
-#### Communication Settings
-- **Only Send PLI and Chat** - Use optimized protobuf format (no EXI compression)
-- **Use Text to Speech** - Read incoming Meshtastic text messages aloud
-- **PTT KeyCode** - Configure hardware button for voice memo recording
+#### File Transfer
+- **Enable File Transfer** - Allow sending files via Meshtastic, requires Short_Turbo preset, max 56KB (default: off)
+
+#### Audio & Voice
+- **Text to Speech** - Read incoming Meshtastic text messages aloud (default: off)
+- **PTT KeyCode** - Hardware button code for voice memo recording (default: 79)
 
 #### GPS Settings
-- **Use Meshtastic GPS as External GPS** - Use Meshtastic device's GPS for ATAK positioning
-- **Enable Reporting Rate Controls** - Override ATAK's position reporting interval
-- **Reporting Rate** - Set position update interval (1, 5, 10, 20, or 30 minutes)
+- **Use Meshtastic GPS** - Use Meshtastic device GPS as ATAK's external GPS source (default: off)
+
+#### Encryption
+- **Enable Extra Encryption** - Encrypt all outgoing messages with AES-256-GCM using PSK (default: off)
+- **Encryption PSK** - Pre-shared key for encryption, all users must have the same key
 
 ## Using Meshtastic as External GPS
 
@@ -74,8 +85,8 @@ To use your Meshtastic device as ATAK's GPS source:
 ### ATAK Configuration
 1. Navigate to **Settings → Callsign and Device Preferences → Device Preferences → GPS Preferences**
 2. Set **GPS Option** to "Ignore internal GPS / Use External or Network GPS Only"
-3. Enable **Use Meshtastic GPS as External GPS** in plugin settings
-4. Disable **Show All Meshtastic Devices** to avoid duplicate markers
+3. Enable **Use Meshtastic GPS** in plugin settings
+4. Disable **Show Meshtastic Devices** to avoid duplicate markers
 
 ## Voice Memo Feature
 
