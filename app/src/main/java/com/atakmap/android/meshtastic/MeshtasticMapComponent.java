@@ -6,13 +6,28 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.view.DragEvent;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.ScrollView;
 
 import androidx.annotation.NonNull;
 
+import com.atakmap.android.cot.importer.MapItemImporter;
+import com.atakmap.android.cotdetails.CoTInfoView;
 import com.atakmap.android.data.URIContentManager;
 import com.atakmap.android.dropdown.DropDownMapComponent;
+import com.atakmap.android.importexport.CotEventFactory;
 import com.atakmap.android.ipc.AtakBroadcast;
+import com.atakmap.android.items.MapItemsDatabase;
+import com.atakmap.android.maps.MapComponent;
+import com.atakmap.android.maps.MapEvent;
+import com.atakmap.android.maps.MapEventDispatcher;
+import com.atakmap.android.maps.MapGroup;
+import com.atakmap.android.maps.MapItem;
+import com.atakmap.android.maps.MapTouchController;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.android.maps.visibility.MapItemVisibilityListener;
 import com.atakmap.android.meshtastic.cot.CotEventProcessor;
 import com.atakmap.android.meshtastic.plugin.R;
 import com.atakmap.android.meshtastic.service.MeshServiceManager;
@@ -22,6 +37,7 @@ import com.atakmap.android.meshtastic.util.Constants;
 import com.atakmap.android.meshtastic.util.CryptoUtils;
 import com.atakmap.android.meshtastic.util.NotificationHelper;
 import com.atakmap.app.preferences.ToolsPreferenceFragment;
+import com.atakmap.commoncommo.CoTMessageListener;
 import com.atakmap.comms.CommsMapComponent;
 import com.atakmap.comms.CotServiceRemote;
 import com.atakmap.coremap.cot.event.CotDetail;
@@ -36,11 +52,15 @@ import org.meshtastic.core.model.MeshUser;
 import org.meshtastic.core.model.MyNodeInfo;
 import org.meshtastic.core.model.NodeInfo;
 import org.meshtastic.proto.Portnums;
+
+import com.atakmap.map.AtakMapView;
+import com.atakmap.map.DefaultMapTouchHandler;
 import com.google.protobuf.ByteString;
 import com.siemens.ct.exi.core.EXIFactory;
 import com.siemens.ct.exi.core.helpers.DefaultEXIFactory;
 import com.siemens.ct.exi.main.api.sax.EXIResult;
 
+import org.osmdroid.events.MapEventsReceiver;
 import org.xml.sax.InputSource;
 import org.xml.sax.XMLReader;
 
@@ -49,6 +69,9 @@ import java.io.File;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Objects;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -61,10 +84,12 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         implements CommsMapComponent.PreSendProcessor,
         SharedPreferences.OnSharedPreferenceChangeListener,
         CotServiceRemote.ConnectionListener,
-        MeshServiceManager.ConnectionListener {
-    
+        MeshServiceManager.ConnectionListener,
+        MapEventDispatcher.MapEventDispatchListener,
+        MapEventDispatcher.OnMapEventListener {
+
     private static final String TAG = "MeshtasticMapComponent";
-    
+
     // Components
     private Context pluginContext;
     private MeshtasticDropDownReceiver ddr;
@@ -80,17 +105,25 @@ public class MeshtasticMapComponent extends DropDownMapComponent
     // Static reference to the singleton instance
     private static MeshtasticMapComponent instance;
     private CotEventProcessor cotEventProcessor;
-    
+
     // UI Components
     public static MeshtasticWidget mw;
 
     // Preferences
     private SharedPreferences prefs;
     private SharedPreferences.Editor editor;
-    
+
     // Thread pool for background operations
     private ExecutorService executorService;
-    
+
+    // Track radio connection state separately from IPC service connection
+    private static boolean radioConnected = false;
+    private static boolean serviceConnected = false;
+
+    // Health check timer
+    private static final long HEALTH_CHECK_INTERVAL_MS = 30000; // 30 seconds
+    private Timer healthCheckTimer;
+
     public MeshtasticMapComponent() {
         meshtasticExternalGPS = new MeshtasticExternalGPS(new PositionToNMEAMapper());
         cotEventProcessor = new CotEventProcessor();
@@ -101,61 +134,151 @@ public class MeshtasticMapComponent extends DropDownMapComponent
     public void onCotServiceConnected(Bundle bundle) {
         // Implementation if needed
     }
-    
+
     @Override
     public void onCotServiceDisconnected() {
         // Implementation if needed
     }
-    
+
     @Override
     public void onServiceConnected() {
-        if (mw != null) {
-            mw.setIcon("green");
-        }
+        serviceConnected = true;
+        // Assume radio is connected when IPC service connects
+        // We'll get a broadcast if it disconnects later
+        radioConnected = true;
+        updateWidgetState();
+        startHealthCheckTimer();
     }
-    
+
     @Override
     public void onServiceDisconnected() {
-        if (mw != null) {
-            mw.setIcon("red");
+        serviceConnected = false;
+        stopHealthCheckTimer();
+        updateWidgetState();
+    }
+
+    /**
+     * Start periodic health check timer
+     */
+    private void startHealthCheckTimer() {
+        stopHealthCheckTimer(); // Cancel any existing timer
+        healthCheckTimer = new Timer("MeshtasticHealthCheck", true);
+        healthCheckTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                performHealthCheck();
+            }
+        }, HEALTH_CHECK_INTERVAL_MS, HEALTH_CHECK_INTERVAL_MS);
+        Log.d(TAG, "Health check timer started (interval: " + HEALTH_CHECK_INTERVAL_MS + "ms)");
+    }
+
+    /**
+     * Stop the health check timer
+     */
+    private void stopHealthCheckTimer() {
+        if (healthCheckTimer != null) {
+            healthCheckTimer.cancel();
+            healthCheckTimer = null;
+            Log.d(TAG, "Health check timer stopped");
         }
     }
-    
+
+    /**
+     * Perform a health check by querying the mesh service.
+     * If we can successfully communicate with the service and get node info,
+     * we consider the connection healthy.
+     */
+    private void performHealthCheck() {
+        Log.d(TAG, "Performing health check...");
+
+        if (!meshServiceManager.isConnected()) {
+            Log.w(TAG, "Health check: IPC service not connected");
+            serviceConnected = false;
+            updateWidgetState();
+            // Try to reconnect
+            meshServiceManager.connect();
+            return;
+        }
+
+        // Try to query node info to verify the connection is actually working
+        try {
+            String myNodeId = meshServiceManager.getMyNodeID();
+            if (myNodeId == null || myNodeId.isEmpty()) {
+                Log.w(TAG, "Health check: Could not get node ID, assuming radio disconnected");
+                radioConnected = false;
+            } else {
+                Log.d(TAG, "Health check: OK (node: " + myNodeId + ")");
+                // Service is responsive and we got a valid node ID - connection is healthy
+                serviceConnected = true;
+                radioConnected = true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Health check: Service query failed", e);
+            serviceConnected = false;
+        }
+
+        updateWidgetState();
+    }
+
+    /**
+     * Called when radio connection state changes (from broadcast receiver)
+     */
+    public static void setRadioConnected(boolean connected) {
+        radioConnected = connected;
+        updateWidgetState();
+    }
+
+    /**
+     * Update widget icon based on both IPC service and radio connection state
+     */
+    private static void updateWidgetState() {
+        if (mw != null) {
+            // Only show green if both IPC service AND radio are connected
+            if (serviceConnected && radioConnected) {
+                mw.setIcon("green");
+            } else {
+                mw.setIcon("red");
+            }
+        }
+    }
+
     @Override
     public void onCreate(final Context context, Intent intent, MapView view) {
         instance = this;
-        CommsMapComponent.getInstance().registerPreSendProcessor(this);
         context.setTheme(R.style.ATAKPluginTheme);
         pluginContext = context;
-        
+
         // Initialize helpers
         notificationHelper = NotificationHelper.getInstance(view.getContext());
         meshServiceManager = MeshServiceManager.getInstance(view.getContext());
         meshServiceManager.setConnectionListener(this);
-        
+
+        // Setup hook for Meshtastic
+        CommsMapComponent.getInstance().registerPreSendProcessor(this);
+
         // Setup dropdown receiver
         Log.d(TAG, "registering the plugin filter");
         ddr = new MeshtasticDropDownReceiver(view, context);
         AtakBroadcast.DocumentedIntentFilter ddFilter = new AtakBroadcast.DocumentedIntentFilter();
         ddFilter.addAction(MeshtasticDropDownReceiver.SHOW_PLUGIN);
         registerDropDownReceiver(ddr, ddFilter);
-        
+
         // Setup preferences
         prefs = new ProtectedSharedPreferences(
-            PreferenceManager.getDefaultSharedPreferences(MapView.getMapView().getContext())
+                PreferenceManager.getDefaultSharedPreferences(MapView.getMapView().getContext())
         );
         editor = prefs.edit();
         editor.putBoolean(Constants.PREF_PLUGIN_CHUNKING, false);
         editor.apply();
         prefs.registerOnSharedPreferenceChangeListener(this);
-        
+
         // Setup GPS if enabled
         int gpsPort = prefs.getInt(Constants.PREF_LISTEN_PORT, Constants.DEFAULT_GPS_PORT);
         boolean shouldUseMeshtasticExternalGPS = prefs.getBoolean(Constants.PREF_PLUGIN_EXTERNAL_GPS, false);
         if (shouldUseMeshtasticExternalGPS) {
             meshtasticExternalGPS.start(gpsPort);
         }
-        
+
         // Setup fountain chunk manager for large message transfers
         String localNodeId = prefs.getString(Constants.PREF_PLUGIN_LOCAL_NODE_ID, "local");
         fountainChunkManager = new FountainChunkManager(meshServiceManager, localNodeId);
@@ -164,37 +287,46 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         mr = new MeshtasticReceiver(meshtasticExternalGPS, fountainChunkManager);
         IntentFilter intentFilter = getIntentFilter();
         view.getContext().registerReceiver(mr, intentFilter, Context.RECEIVER_EXPORTED);
-        
+
         // Setup CoT service
         CotServiceRemote cotService = new CotServiceRemote();
         cotService.setCotEventListener(mr);
         cotService.connect(this);
-        
+
         // Setup URI content manager
         URIContentManager.getInstance().registerSender(
-            meshtasticSender = new MeshtasticSender(view, pluginContext)
+                meshtasticSender = new MeshtasticSender(view, pluginContext)
         );
-        
+
         // Connect to mesh service
         meshServiceManager.connect();
-        
+
         // Setup widget
         mw = new MeshtasticWidget(context, view);
-        
+
         // Register preferences fragment
         ToolsPreferenceFragment.register(
-            new ToolsPreferenceFragment.ToolPreference(
-                pluginContext.getString(R.string.preferences_title),
-                pluginContext.getString(R.string.preferences_summary),
-                pluginContext.getString(R.string.meshtastic_preferences),
-                pluginContext.getResources().getDrawable(R.drawable.ic_launcher),
-                new PluginPreferencesFragment(pluginContext)
-            )
+                new ToolsPreferenceFragment.ToolPreference(
+                        pluginContext.getString(R.string.preferences_title),
+                        pluginContext.getString(R.string.preferences_summary),
+                        pluginContext.getString(R.string.meshtastic_preferences),
+                        pluginContext.getResources().getDrawable(R.drawable.ic_launcher),
+                        new PluginPreferencesFragment(pluginContext)
+                )
         );
+
+        MapEventDispatcher dispatcher = view.getMapEventDispatcher();
+        dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_DROPPED, this);
+        dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_CONTINUED, this);
+        dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_STARTED, this);
+        dispatcher.addMapEventListener(MapEvent.ITEM_LONG_PRESS, this);
     }
-    
+
     @Override
     protected void onDestroyImpl(Context context, MapView view) {
+        // Stop health check timer
+        stopHealthCheckTimer();
+
         // Clean up MeshtasticReceiver resources
         if (mr != null) {
             mr.cleanup();
@@ -224,26 +356,30 @@ public class MeshtasticMapComponent extends DropDownMapComponent
     @Override
     public void processCotEvent(CotEvent cotEvent, String[] strings) {
         Log.d(TAG, "processCotEvent");
-        
+        Log.d(TAG, "CotEvent: " + cotEvent.toString());
+
         // Check if this is a Meshtastic message (don't forward back)
         CotDetail cotDetail = cotEvent.getDetail();
-        if (cotDetail != null && cotDetail.getChild("__meshtastic") != null) {
+        CotDetail meshtasticDetail = cotDetail != null ? cotDetail.getChild("__meshtastic") : null;
+        if (meshtasticDetail != null) {
             Log.d(TAG, "Meshtastic message, don't forward");
+            cotDetail.removeChild(meshtasticDetail);
+            cotEvent.setDetail(cotDetail);
             return;
         }
-        
+
         // Check service connection
         if (!meshServiceManager.isConnected()) {
             Log.d(TAG, "Service not connected");
             return;
         }
-        
+
         // Check if transfer in progress
         if (prefs.getBoolean(Constants.PREF_PLUGIN_CHUNKING, false)) {
             Log.d(TAG, "Transfer in progress");
             return;
         }
-        
+
         int hopLimit = MeshtasticReceiver.getHopLimit();
         int channel = MeshtasticReceiver.getChannelIndex();
 
@@ -269,7 +405,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         // Handle different event types
         String uid = cotEvent.getUID();
         String type = cotEvent.getType();
-        
+
         if (uid.equals(MapView.getMapView().getSelfMarker().getUID())) {
             long currentTime = System.currentTimeMillis();
 
@@ -311,110 +447,16 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             handleGenericCotEvent(cotEvent, hopLimit, channel);
         }
     }
-    
+
     private void handleSelfPLI(CotEventProcessor.ParsedCotData data, int hopLimit, int channel) {
         Log.d(TAG, "Sending self marker PLI to Meshtastic");
-        
+
         ATAKProtos.TAKPacket takPacket = cotEventProcessor.buildPLIPacket(data);
-        
+
         Log.d(TAG, "Total wire size for TAKPacket: " + takPacket.toByteArray().length);
         //Log.d(TAG, "Sending: " + takPacket.toString());
-        
+
         DataPacket dp = new DataPacket(
-            DataPacket.ID_BROADCAST,
-            takPacket.toByteArray(),
-            Portnums.PortNum.ATAK_PLUGIN_VALUE,
-            DataPacket.ID_LOCAL,
-            System.currentTimeMillis(),
-            0,
-            MessageStatus.UNKNOWN,
-            hopLimit,
-            channel,
-            MeshtasticReceiver.getWantsAck(),
-            0,  // hopStart
-            0f, // snr
-            0,  // rssi
-            null, // replyId,
-            null, // relayNode
-            0,    // relays
-            false // viaMqtt
-        );
-        
-        meshServiceManager.sendToMesh(dp);
-    }
-    
-    private void handleAllChatMessage(CotEventProcessor.ParsedCotData data, int hopLimit, int channel) {
-        Log.d(TAG, "Sending All Chat Rooms to Meshtastic");
-        
-        ATAKProtos.TAKPacket takPacket = cotEventProcessor.buildChatPacket(data);
-        
-        Log.d(TAG, "Total wire size for TAKPacket: " + takPacket.toByteArray().length);
-        //Log.d(TAG, "Sending: " + takPacket.toString());
-        
-        DataPacket dp = new DataPacket(
-            DataPacket.ID_BROADCAST,
-            takPacket.toByteArray(),
-            Portnums.PortNum.ATAK_PLUGIN_VALUE,
-            DataPacket.ID_LOCAL,
-            System.currentTimeMillis(),
-            0,
-            MessageStatus.UNKNOWN,
-            hopLimit,
-            channel,
-            MeshtasticReceiver.getWantsAck(),
-            0,  // hopStart
-            0f, // snr
-            0,  // rssi
-            null, // replyId,
-            null, // relayNode
-            0,    // relays
-            false // viaMqtt
-        );
-        
-        meshServiceManager.sendToMesh(dp);
-    }
-    
-    private void handleDirectMessage(CotEventProcessor.ParsedCotData data, int hopLimit, int channel) {
-        Log.d(TAG, "Sending DM Chat to Meshtastic");
-        
-        if (data.to == null) {
-            return;
-        }
-        
-        DataPacket dp;
-        if (data.to.startsWith("!")) {
-            // Meshtastic ID - send as text message
-            Log.d(TAG, "Sending to Meshtastic ID: " + data.to);
-            dp = new DataPacket(
-                data.to,
-                MeshProtos.Data.newBuilder()
-                    .setPayload(ByteString.copyFrom(data.message.getBytes(StandardCharsets.UTF_8)))
-                    .build()
-                    .toByteArray(),
-                Portnums.PortNum.TEXT_MESSAGE_APP_VALUE,
-                DataPacket.ID_LOCAL,
-                System.currentTimeMillis(),
-                0,
-                MessageStatus.UNKNOWN,
-                hopLimit,
-                channel,
-                MeshtasticReceiver.getWantsAck(),
-                0,  // hopStart
-                0f, // snr
-                0,  // rssi
-                null, // replyId,
-                null, // relayNode
-                0,    // relays
-                false // viaMqtt
-            );
-        } else {
-            // Regular ATAK device
-            ATAKProtos.TAKPacket takPacket = cotEventProcessor.buildChatPacket(data);
-            
-            Log.d(TAG, "Total wire size for TAKPacket: " + takPacket.toByteArray().length);
-            //Log.d(TAG, "Sending: " + takPacket.toString());
-            
-            dp = new DataPacket(
                 DataPacket.ID_BROADCAST,
                 takPacket.toByteArray(),
                 Portnums.PortNum.ATAK_PLUGIN_VALUE,
@@ -432,9 +474,103 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 null, // relayNode
                 0,    // relays
                 false // viaMqtt
+        );
+
+        meshServiceManager.sendToMesh(dp);
+    }
+
+    private void handleAllChatMessage(CotEventProcessor.ParsedCotData data, int hopLimit, int channel) {
+        Log.d(TAG, "Sending All Chat Rooms to Meshtastic");
+
+        ATAKProtos.TAKPacket takPacket = cotEventProcessor.buildChatPacket(data);
+
+        Log.d(TAG, "Total wire size for TAKPacket: " + takPacket.toByteArray().length);
+        //Log.d(TAG, "Sending: " + takPacket.toString());
+
+        DataPacket dp = new DataPacket(
+                DataPacket.ID_BROADCAST,
+                takPacket.toByteArray(),
+                Portnums.PortNum.ATAK_PLUGIN_VALUE,
+                DataPacket.ID_LOCAL,
+                System.currentTimeMillis(),
+                0,
+                MessageStatus.UNKNOWN,
+                hopLimit,
+                channel,
+                MeshtasticReceiver.getWantsAck(),
+                0,  // hopStart
+                0f, // snr
+                0,  // rssi
+                null, // replyId,
+                null, // relayNode
+                0,    // relays
+                false // viaMqtt
+        );
+
+        meshServiceManager.sendToMesh(dp);
+    }
+
+    private void handleDirectMessage(CotEventProcessor.ParsedCotData data, int hopLimit, int channel) {
+        Log.d(TAG, "Sending DM Chat to Meshtastic");
+
+        if (data.to == null) {
+            return;
+        }
+
+        DataPacket dp;
+        if (data.to.startsWith("!")) {
+            // Meshtastic ID - send as text message
+            Log.d(TAG, "Sending to Meshtastic ID: " + data.to);
+            dp = new DataPacket(
+                    data.to,
+                    MeshProtos.Data.newBuilder()
+                            .setPayload(ByteString.copyFrom(data.message.getBytes(StandardCharsets.UTF_8)))
+                            .build()
+                            .toByteArray(),
+                    Portnums.PortNum.TEXT_MESSAGE_APP_VALUE,
+                    DataPacket.ID_LOCAL,
+                    System.currentTimeMillis(),
+                    0,
+                    MessageStatus.UNKNOWN,
+                    hopLimit,
+                    channel,
+                    MeshtasticReceiver.getWantsAck(),
+                    0,  // hopStart
+                    0f, // snr
+                    0,  // rssi
+                    null, // replyId,
+                    null, // relayNode
+                    0,    // relays
+                    false // viaMqtt
+            );
+        } else {
+            // Regular ATAK device
+            ATAKProtos.TAKPacket takPacket = cotEventProcessor.buildChatPacket(data);
+
+            Log.d(TAG, "Total wire size for TAKPacket: " + takPacket.toByteArray().length);
+            //Log.d(TAG, "Sending: " + takPacket.toString());
+
+            dp = new DataPacket(
+                    DataPacket.ID_BROADCAST,
+                    takPacket.toByteArray(),
+                    Portnums.PortNum.ATAK_PLUGIN_VALUE,
+                    DataPacket.ID_LOCAL,
+                    System.currentTimeMillis(),
+                    0,
+                    MessageStatus.UNKNOWN,
+                    hopLimit,
+                    channel,
+                    MeshtasticReceiver.getWantsAck(),
+                    0,  // hopStart
+                    0f, // snr
+                    0,  // rssi
+                    null, // replyId,
+                    null, // relayNode
+                    0,    // relays
+                    false // viaMqtt
             );
         }
-        
+
         meshServiceManager.sendToMesh(dp);
     }
 
@@ -497,42 +633,42 @@ public class MeshtasticMapComponent extends DropDownMapComponent
 
         // Build TAKPacket with the receipt message
         ATAKProtos.GeoChat.Builder geoChatBuilder = ATAKProtos.GeoChat.newBuilder()
-            .setMessage(receiptMessage)
-            .setTo(to);
+                .setMessage(receiptMessage)
+                .setTo(to);
 
         // Get sender info
         String selfCallsign = MapView.getMapView().getDeviceCallsign();
         String selfUid = MapView.getMapView().getSelfMarker().getUID();
 
         ATAKProtos.Contact.Builder contactBuilder = ATAKProtos.Contact.newBuilder()
-            .setCallsign(selfCallsign)
-            .setDeviceCallsign(selfUid);
+                .setCallsign(selfCallsign)
+                .setDeviceCallsign(selfUid);
 
         ATAKProtos.TAKPacket takPacket = ATAKProtos.TAKPacket.newBuilder()
-            .setContact(contactBuilder.build())
-            .setChat(geoChatBuilder.build())
-            .build();
+                .setContact(contactBuilder.build())
+                .setChat(geoChatBuilder.build())
+                .build();
 
         Log.d(TAG, "Chat receipt TAKPacket size: " + takPacket.toByteArray().length + " bytes");
 
         DataPacket dp = new DataPacket(
-            targetNodeId,  // Send to specific node if known, otherwise broadcast
-            takPacket.toByteArray(),
-            Portnums.PortNum.ATAK_PLUGIN_VALUE,
-            DataPacket.ID_LOCAL,
-            System.currentTimeMillis(),
-            0,
-            MessageStatus.UNKNOWN,
-            hopLimit,
-            channel,
-            false,  // No ACK needed for receipts
-            0,  // hopStart
-            0f, // snr
-            0,  // rssi
-            null, // replyId,
-            null, // relayNode
-            0,    // relays
-            false // viaMqtt
+                DataPacket.ID_BROADCAST,  // Send to specific node if known, otherwise broadcast
+                takPacket.toByteArray(),
+                Portnums.PortNum.ATAK_PLUGIN_VALUE,
+                DataPacket.ID_LOCAL,
+                System.currentTimeMillis(),
+                0,
+                MessageStatus.UNKNOWN,
+                hopLimit,
+                channel,
+                false,  // No ACK needed for receipts
+                0,  // hopStart
+                0f, // snr
+                0,  // rssi
+                null, // replyId,
+                null, // relayNode
+                0,    // relays
+                false // viaMqtt
         );
 
         meshServiceManager.sendToMesh(dp);
@@ -543,10 +679,10 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             Log.d(TAG, "Chunking already in progress");
             return;
         }
-        
+
         executorService.execute(() -> {
             Log.d(TAG, "Sending Chunks");
-            
+
             byte[] cotAsBytes;
             try {
                 // Compress CoT to EXI format
@@ -554,7 +690,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 ByteArrayOutputStream osEXI = new ByteArrayOutputStream();
                 EXIResult exiResult = new EXIResult(exiFactory);
                 exiResult.setOutputStream(osEXI);
-                
+
                 SAXParserFactory saxParserFactory = SAXParserFactory.newInstance();
                 saxParserFactory.setNamespaceAware(true);
                 try {
@@ -569,7 +705,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 SAXParser newSAXParser = saxParserFactory.newSAXParser();
                 XMLReader xmlReader = newSAXParser.getXMLReader();
                 xmlReader.setContentHandler(exiResult.getHandler());
-                
+
                 InputSource stream = new InputSource(new StringReader(cotEvent.toString()));
                 xmlReader.parse(stream);
                 cotAsBytes = osEXI.toByteArray();
@@ -578,35 +714,35 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 Log.e(TAG, "Failed to compress CoT event", e);
                 return;
             }
-            
+
             Log.d(TAG, "Size: " + cotAsBytes.length);
-            
+
             // Small messages can be sent directly (max payload is 233 bytes)
             if (cotAsBytes.length < 233) {
                 Log.d(TAG, "Small send");
                 DataPacket dp = new DataPacket(
-                    DataPacket.ID_BROADCAST,
-                    cotAsBytes,
-                    Portnums.PortNum.ATAK_FORWARDER_VALUE,
-                    DataPacket.ID_LOCAL,
-                    System.currentTimeMillis(),
-                    0,
-                    MessageStatus.UNKNOWN,
-                    hopLimit,
-                    channel,
-                    MeshtasticReceiver.getWantsAck(),
-                    0,  // hopStart
-                    0f, // snr
-                    0,  // rssi
-                    null, // replyId,
-                    null, // relayNode
-                    0,    // relays
-                    false // viaMqtt
+                        DataPacket.ID_BROADCAST,
+                        cotAsBytes,
+                        Portnums.PortNum.ATAK_FORWARDER_VALUE,
+                        DataPacket.ID_LOCAL,
+                        System.currentTimeMillis(),
+                        0,
+                        MessageStatus.UNKNOWN,
+                        hopLimit,
+                        channel,
+                        MeshtasticReceiver.getWantsAck(),
+                        0,  // hopStart
+                        0f, // snr
+                        0,  // rssi
+                        null, // replyId,
+                        null, // relayNode
+                        0,    // relays
+                        false // viaMqtt
                 );
                 meshServiceManager.sendToMesh(dp);
                 return;
             }
-            
+
             // Large messages need fountain coding
             editor.putBoolean(Constants.PREF_PLUGIN_CHUNKING, true);
             editor.apply();
@@ -686,23 +822,23 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             if (encryptedBytes.length < 233) {
                 Log.d(TAG, "Sending small encrypted message directly");
                 DataPacket dp = new DataPacket(
-                    DataPacket.ID_BROADCAST,
-                    encryptedBytes,
-                    Portnums.PortNum.ATAK_FORWARDER_VALUE,
-                    DataPacket.ID_LOCAL,
-                    System.currentTimeMillis(),
-                    0,
-                    MessageStatus.UNKNOWN,
-                    hopLimit,
-                    channel,
-                    MeshtasticReceiver.getWantsAck(),
-                    0,  // hopStart
-                    0f, // snr
-                    0,  // rssi
-                    null, // replyId,
-                    null, // relayNode
-                    0,    // relays
-                    false // viaMqtt
+                        DataPacket.ID_BROADCAST,
+                        encryptedBytes,
+                        Portnums.PortNum.ATAK_FORWARDER_VALUE,
+                        DataPacket.ID_LOCAL,
+                        System.currentTimeMillis(),
+                        0,
+                        MessageStatus.UNKNOWN,
+                        hopLimit,
+                        channel,
+                        MeshtasticReceiver.getWantsAck(),
+                        0,  // hopStart
+                        0f, // snr
+                        0,  // rssi
+                        null, // replyId,
+                        null, // relayNode
+                        0,    // relays
+                        false // viaMqtt
                 );
                 meshServiceManager.sendToMesh(dp);
                 return;
@@ -728,7 +864,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
     @Override
     public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
         if (key == null) return;
-        
+
         if (FileSystemUtils.isEquals(key, Constants.PREF_PLUGIN_RATE_VALUE)) {
             String rate = prefs.getString(Constants.PREF_PLUGIN_RATE_VALUE, "0");
             Log.d(TAG, "Rate: " + rate);
@@ -737,7 +873,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             editor.putString("constantReportingRateReliable", rate);
             editor.apply();
         }
-        
+
         if (Constants.PREF_PLUGIN_EXTERNAL_GPS.equals(key)) {
             boolean shouldUseMeshtasticExternalGPS = prefs.getBoolean(Constants.PREF_PLUGIN_EXTERNAL_GPS, false);
             if (shouldUseMeshtasticExternalGPS) {
@@ -748,7 +884,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             }
         }
     }
-    
+
     @NonNull
     private static IntentFilter getIntentFilter() {
         IntentFilter intentFilter = new IntentFilter();
@@ -765,13 +901,13 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         intentFilter.addAction(Constants.ACTION_TEXT_MESSAGE_APP);
         return intentFilter;
     }
-    
+
     // Static helper methods for backward compatibility
     public static void sendToMesh(DataPacket dp) {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         manager.sendToMesh(dp);
     }
-    
+
     public static boolean sendFile(File f) {
         try {
             byte[] fileBytes = FileSystemUtils.read(f);
@@ -786,10 +922,10 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             }
 
             int transferId = fcm.send(
-                fileBytes,
-                MeshtasticReceiver.getChannelIndex(),
-                MeshtasticReceiver.getHopLimit(),
-                Constants.TRANSFER_TYPE_FILE
+                    fileBytes,
+                    MeshtasticReceiver.getChannelIndex(),
+                    MeshtasticReceiver.getHopLimit(),
+                    Constants.TRANSFER_TYPE_FILE
             );
 
             if (transferId >= 0) {
@@ -803,52 +939,52 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             return false;
         }
     }
-    
+
     public static void setOwner(MeshUser meshUser) {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         manager.setOwner(meshUser);
     }
-    
+
     public static void setChannel(byte[] channel) {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         manager.setChannel(channel);
     }
-    
+
     public static void setConfig(byte[] config) {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         manager.setConfig(config);
     }
-    
+
     public static byte[] getChannelSet() {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         return manager.getChannelSet();
     }
-    
+
     public static byte[] getConfig() {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         return manager.getConfig();
     }
-    
+
     public static List<NodeInfo> getNodes() {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         return manager.getNodes();
     }
-    
+
     public static MyNodeInfo getMyNodeInfo() {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         return manager.getMyNodeInfo();
     }
-    
+
     public static String getMyNodeID() {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         return manager.getMyNodeID();
     }
-    
+
     public static boolean reconnect() {
         MeshServiceManager manager = MeshServiceManager.getInstance(MapView.getMapView().getContext());
         return manager.reconnect();
     }
-    
+
     public static MeshServiceManager getMeshService() {
         return MeshServiceManager.getInstance(MapView.getMapView().getContext());
     }
@@ -865,5 +1001,23 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             sb.append(String.format("%02X", b));
         }
         return sb.toString();
+    }
+
+    @Override
+    public void onMapEvent(MapEvent mapEvent) {
+
+    }
+
+    @Override
+    public void onMapItemMapEvent(MapItem item, MapEvent event) {
+        String type = event.getType();
+        if (type.equals(MapEvent.ITEM_DRAG_STARTED)
+                || type.equals(MapEvent.ITEM_DRAG_CONTINUED)
+                || type.equals(MapEvent.ITEM_DRAG_DROPPED)) {
+            Log.d(TAG, "Item drag event: " + type + " for item: " + item.getTitle());
+        }
+        if (type.equals(MapEvent.ITEM_LONG_PRESS)) {
+            Log.d(TAG, "Item long press event for item: " + item.getTitle());
+        }
     }
 }

@@ -29,6 +29,7 @@ public class CotEventProcessor {
         public String callsign;
         public String deviceCallsign;
         public String message;
+        public String messageId;  // Original messageId for read receipts
         public String to;
         public String role;
         public String teamName;
@@ -49,12 +50,12 @@ public class CotEventProcessor {
 
     public ParsedCotData parseCotEvent(CotEvent cotEvent) {
         ParsedCotData data = new ParsedCotData();
-        
+
         if (cotEvent == null) {
             Log.w(TAG, "Null CoT event provided");
             return data;
         }
-        
+
         // Get location from self marker
         MapView mapView = MapView.getMapView();
         if (mapView != null && mapView.getSelfMarker() != null) {
@@ -66,23 +67,34 @@ public class CotEventProcessor {
             }
             data.deviceCallsign = mapView.getSelfMarker().getUID();
         }
-        
+
+        // Extract UUID from GeoChat UID format: GeoChat.<deviceCallsign>.<chatroom>.<UUID>
+        String uid = cotEvent.getUID();
+        if (uid != null && uid.startsWith("GeoChat.")) {
+            Log.d(TAG, "Parsing GeoChat UID: " + uid);
+            int lastDotIndex = uid.lastIndexOf('.');
+            if (lastDotIndex > 0 && lastDotIndex < uid.length() - 1) {
+                data.messageId = uid.substring(lastDotIndex + 1);
+                Log.d(TAG, "Extracted UUID from GeoChat UID: " + data.messageId);
+            }
+        }
+
         CotDetail cotDetail = cotEvent.getDetail();
         if (cotDetail == null) {
             return data;
         }
-        
+
         try {
             XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
             factory.setNamespaceAware(true);
             XmlPullParser xpp = factory.newPullParser();
             xpp.setInput(new StringReader(cotDetail.toString()));
-            
+
             parseXml(xpp, data);
         } catch (XmlPullParserException | IOException e) {
             Log.e(TAG, "Failed to parse CoT detail", e);
         }
-        
+
         return data;
     }
     
@@ -183,6 +195,7 @@ public class CotEventProcessor {
             } else if ("id".equalsIgnoreCase(attrName)) {
                 data.to = xpp.getAttributeValue(i);
             }
+            // Note: messageId is extracted from the CotEvent UID, not from __chat attribute
         }
     }
     
@@ -235,19 +248,48 @@ public class CotEventProcessor {
             .build();
     }
     
+    // Separator used to smuggle messageId in deviceCallsign field
+    public static final String MSG_ID_SEPARATOR = "|";
+
     public ATAKProtos.TAKPacket buildChatPacket(ParsedCotData data) {
+        // Smuggle the messageId in the deviceCallsign field for read receipt support
+        // Format: "deviceCallsign|messageId"
+        String deviceCallsignWithMsgId = data.deviceCallsign != null ? data.deviceCallsign : "";
+        if (data.messageId != null && !data.messageId.isEmpty()) {
+            deviceCallsignWithMsgId = deviceCallsignWithMsgId + MSG_ID_SEPARATOR + data.messageId;
+        }
+
         ATAKProtos.Contact.Builder contact = ATAKProtos.Contact.newBuilder()
             .setCallsign(data.callsign != null ? data.callsign : "")
-            .setDeviceCallsign(data.deviceCallsign != null ? data.deviceCallsign : "");
-        
+            .setDeviceCallsign(deviceCallsignWithMsgId);
+
         ATAKProtos.GeoChat.Builder geochat = ATAKProtos.GeoChat.newBuilder()
             .setMessage(data.message != null ? data.message : "")
             .setTo(data.to != null ? data.to : "All Chat Rooms");
-        
+
         return ATAKProtos.TAKPacket.newBuilder()
             .setContact(contact)
             .setChat(geochat)
             .build();
+    }
+
+    /**
+     * Extract deviceCallsign and messageId from a potentially combined field.
+     * Format: "deviceCallsign|messageId" or just "deviceCallsign"
+     * @return String[2] where [0] = deviceCallsign, [1] = messageId (or null)
+     */
+    public static String[] parseDeviceCallsignAndMessageId(String combined) {
+        if (combined == null || combined.isEmpty()) {
+            return new String[] { "", null };
+        }
+        int sepIndex = combined.indexOf(MSG_ID_SEPARATOR);
+        if (sepIndex >= 0) {
+            return new String[] {
+                combined.substring(0, sepIndex),
+                combined.substring(sepIndex + 1)
+            };
+        }
+        return new String[] { combined, null };
     }
     
     public CotEvent createGeoChatEvent(String from, String to, String message, boolean isAllChat) {

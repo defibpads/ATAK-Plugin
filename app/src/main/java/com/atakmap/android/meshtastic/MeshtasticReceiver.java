@@ -18,6 +18,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 
 import com.atakmap.android.maps.tilesets.EquirectangularTilesetSupport;
+import com.atakmap.android.meshtastic.cot.CotEventProcessor;
 import com.atakmap.android.meshtastic.util.Constants;
 import com.atakmap.android.meshtastic.util.CryptoUtils;
 import com.atakmap.android.meshtastic.util.FileTransferManager;
@@ -53,6 +54,8 @@ import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.time.CoordinatedTime;
 
 import com.atakmap.map.projection.EquirectangularMapProjection;
+
+import org.meshtastic.core.model.Position;
 import org.meshtastic.proto.ATAKProtos;
 import org.meshtastic.core.model.DataPacket;
 
@@ -253,33 +256,32 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
         switch (action) {
             case Constants.ACTION_MESH_CONNECTED: {
                 String extraConnected = intent.getStringExtra(Constants.EXTRA_CONNECTED);
-                boolean connected = extraConnected.equals(Constants.STATE_CONNECTED);
                 Log.d(TAG, "Received ACTION_MESH_CONNECTED: " + extraConnected);
-                if (connected) {
-                    // Radio connected - reconnect IPC service
-                    // The onServiceConnected callback will set widget to green
-                    MeshtasticMapComponent.reconnect();
-                } else {
-                    // Radio disconnected - set widget red
-                    if (MeshtasticMapComponent.mw != null) {
-                        MeshtasticMapComponent.mw.setIcon("red");
-                    }
+                if (extraConnected == null) {
+                    break;
                 }
+                // Use case-insensitive comparison - Meshtastic app sends "Connected"/"Disconnected"
+                if (extraConnected.equalsIgnoreCase(Constants.STATE_CONNECTED)) {
+                    // Radio connected - update state and reconnect IPC service
+                    MeshtasticMapComponent.setRadioConnected(true);
+                    MeshtasticMapComponent.reconnect();
+                } else if (extraConnected.equalsIgnoreCase(Constants.STATE_DISCONNECTED)) {
+                    // Radio disconnected
+                    MeshtasticMapComponent.setRadioConnected(false);
+                }
+                // Ignore other intermediate states
                 break;
             }
             case Constants.ACTION_MESH_DISCONNECTED: {
                 String extraConnected = intent.getStringExtra(Constants.EXTRA_DISCONNECTED);
-                if (extraConnected == null) {
-                    Log.d(TAG, "Received ACTION_MESH_DISCONNECTED: null");
-                    return;
-                }
-                boolean disconnected = extraConnected.equals(Constants.STATE_DISCONNECTED);
                 Log.d(TAG, "Received ACTION_MESH_DISCONNECTED: " + extraConnected);
-                if (disconnected) {
-                    // Radio disconnected - set widget red
-                    if (MeshtasticMapComponent.mw != null) {
-                        MeshtasticMapComponent.mw.setIcon("red");
-                    }
+                if (extraConnected == null) {
+                    break;
+                }
+                // Use case-insensitive comparison
+                if (extraConnected.equalsIgnoreCase(Constants.STATE_DISCONNECTED)) {
+                    // Radio disconnected
+                    MeshtasticMapComponent.setRadioConnected(false);
                 }
                 break;
             }
@@ -486,9 +488,11 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                 } else if (ni.getUser() == null) {
                     Log.d(TAG, "getUser was null");
                     return;
-                } else  if (ni.getPosition() == null) {
-                    Log.d(TAG, "getPosition was null");
-                    return;
+                }
+
+                Position pos = ni.getPosition();
+                if (pos == null) {
+                    pos = new Position(0, 0, 0,0,0,0,0,0);
                 }
 
                 if (prefs.getBoolean(Constants.PREF_PLUGIN_FILTER_BY_CHANNEL, false)) {
@@ -505,11 +509,11 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                 }
 
                 if (prefs.getBoolean(Constants.PREF_PLUGIN_NOGPS, false)) {
-                    if (ni.getPosition().getLatitude() == 0 && ni.getPosition().getLongitude() == 0) {
+                    if (pos.getLatitude() == 0 && pos.getLongitude() == 0) {
                         Log.d(TAG, "Ignoring NodeInfo with 0,0 GPS");
                         return;
                     }
-                    Log.d(TAG, "NodeInfo GPS: " + ni.getPosition().getLatitude() + ", " + ni.getPosition().getLongitude() + ", Ignoring due to preferences");
+                    Log.d(TAG, "NodeInfo GPS: " + pos.getLatitude() + ", " + pos.getLongitude() + ", Ignoring due to preferences");
                 }
 
                 String myId = MeshtasticMapComponent.getMyNodeID();
@@ -521,7 +525,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                 if (shouldUseMeshtasticExternalGPS && ni.getUser().getId().equals(myId)) {
                     Log.d(TAG, "Sending self coordinates to network GPS");
 
-                    meshtasticExternalGPS.updatePosition(ni.getPosition());
+                    meshtasticExternalGPS.updatePosition(pos);
                 }
 
                 if (ni.getUser().getId().equals(myId) && prefs.getBoolean(Constants.PREF_PLUGIN_SELF, false)) {
@@ -533,6 +537,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     String nodeName = ni.getUser().getLongName();
                     Log.i(TAG, "Node name: " + nodeName);
                     CotDetail groupDetail = new CotDetail("__group");
+                    groupDetail.setAttribute("role", "Team Member");
                     String[] teamColor = {"Unknown", " -0"};
                     try {
                         teamColor = nodeName.split("((?= -[0-9]*$))");
@@ -543,7 +548,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                         if (teamColor.length < 2) {
                             teamColor = new String[]{nodeName, " -10"};
                         }
-                        groupDetail.setAttribute("role", "Team Member");
+
                         switch (teamColor[1]) {
                             case " -0":
                             case " -1":
@@ -604,7 +609,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     cotEvent.setStale(time.addMinutes(10));
 
                     cotEvent.setUID(ni.getUser().getId());
-                    CotPoint gp = new CotPoint(ni.getPosition().getLatitude(), ni.getPosition().getLongitude(), ni.getPosition().getAltitude(), CotPoint.UNKNOWN, CotPoint.UNKNOWN);
+                    CotPoint gp = new CotPoint(pos.getLatitude(), pos.getLongitude(), pos.getAltitude(), CotPoint.UNKNOWN, CotPoint.UNKNOWN);
                     cotEvent.setPoint(gp);
                     cotEvent.setHow("m-g");
                     cotEvent.setType("a-f-G-E-S");
@@ -878,6 +883,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                         }
                         CotDetail meshDetail = new CotDetail("__meshtastic");
                         cotDetail.addChild(meshDetail);
+                        cotEvent.setDetail(cotDetail);
 
                         Log.d(TAG, "Dispatching decrypted CoT event");
                         CotMapComponent.getInternalDispatcher().dispatch(cotEvent);
@@ -905,6 +911,16 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     transformer.transform(exiSource, result);
                     CotEvent cotEvent = CotEvent.parse(writer.toString());
                     if (cotEvent.isValid()) {
+                        // Add meshtastic marker to prevent re-forwarding
+                        CotDetail cotDetail = cotEvent.getDetail();
+                        if (cotDetail == null) {
+                            cotDetail = new CotDetail("detail");
+                            cotEvent.setDetail(cotDetail);
+                        }
+                        CotDetail meshDetail = new CotDetail("__meshtastic");
+                        cotDetail.addChild(meshDetail);
+                        cotEvent.setDetail(cotDetail);
+
                         CotMapComponent.getInternalDispatcher().dispatch(cotEvent);
                         if (prefs.getBoolean(Constants.PREF_PLUGIN_SERVER, false)) {
                             CotMapComponent.getExternalDispatcher().dispatch(cotEvent);
@@ -1014,6 +1030,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
 
                     CotDetail meshDetail = new CotDetail("__meshtastic");
                     cotDetail.addChild(meshDetail);
+                    cotEvent.setDetail(cotDetail);
 
                     CotPoint cotPoint = new CotPoint(lat, lng, CotPoint.UNKNOWN,
                             CotPoint.UNKNOWN, CotPoint.UNKNOWN);
@@ -1034,8 +1051,20 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     ATAKProtos.GeoChat geoChat = tp.getChat();
 
                     String callsign = contact.getCallsign();
-                    String deviceCallsign = contact.getDeviceCallsign();
-                    String msgId = callsign + "-" + deviceCallsign + "-" + geoChat.getMessage().hashCode() + "-" + System.currentTimeMillis();
+                    // Parse deviceCallsign which may contain smuggled messageId: "deviceCallsign|messageId"
+                    String[] parsed = CotEventProcessor.parseDeviceCallsignAndMessageId(contact.getDeviceCallsign());
+                    String deviceCallsign = parsed[0];
+                    String originalMsgId = parsed[1];
+
+                    // Use original messageId if available, otherwise generate a UUID
+                    String msgId;
+                    if (originalMsgId != null && !originalMsgId.isEmpty()) {
+                        msgId = originalMsgId;
+                        Log.d(TAG, "Using original messageId: " + msgId);
+                    } else {
+                        msgId = UUID.randomUUID().toString();
+                        Log.d(TAG, "Generated fallback UUID messageId: " + msgId);
+                    }
 
                     // Store nodeId -> ATAK info mapping for TEXT_MESSAGE_APP sender lookup
                     String senderNodeId = payload.getFrom();
@@ -1054,9 +1083,9 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
 
                     if (prefs.getBoolean(Constants.PREF_PLUGIN_VOICE, false)) {
                         StringBuilder message = new StringBuilder();
-                        message.append("GeoChat from ");
+                        message.append(" GeoChat from ");
                         message.append(callsign);
-                        message.append(" ");
+                        message.append(" Message Reads ");
                         message.append(geoChat.getMessage());
                         MeshtasticDropDownReceiver.t1.speak(message.toString(), TextToSpeech.QUEUE_FLUSH, null);
                     }
@@ -1102,6 +1131,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
 
                     CotEvent cotEvent = new CotEvent();
                     cotEvent.setDetail(cotDetail);
+                    // Reconstruct the proper UID format: GeoChat.<deviceCallsign>.All Chat Rooms.<messageId>
                     cotEvent.setUID("GeoChat." + deviceCallsign + ".All Chat Rooms." + msgId);
                     cotEvent.setTime(time);
                     cotEvent.setStart(time);
@@ -1137,8 +1167,20 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
 
                     String to = geoChat.getTo();
                     String callsign = contact.getCallsign();
-                    String deviceCallsign = contact.getDeviceCallsign();
-                    String msgId = callsign + "-" + deviceCallsign + "-" + message.hashCode() + "-" + System.currentTimeMillis();
+                    // Parse deviceCallsign which may contain smuggled messageId: "deviceCallsign|messageId"
+                    String[] parsed = CotEventProcessor.parseDeviceCallsignAndMessageId(contact.getDeviceCallsign());
+                    String deviceCallsign = parsed[0];
+                    String originalMsgId = parsed[1];
+
+                    // Use original messageId if available, otherwise generate a UUID
+                    String msgId;
+                    if (originalMsgId != null && !originalMsgId.isEmpty()) {
+                        msgId = originalMsgId;
+                        Log.d(TAG, "Using original messageId: " + msgId);
+                    } else {
+                        msgId = UUID.randomUUID().toString();
+                        Log.d(TAG, "Generated fallback UUID messageId: " + msgId);
+                    }
 
                     // Store nodeId -> ATAK info mapping for TEXT_MESSAGE_APP sender lookup
                     String senderNodeId = payload.getFrom();
@@ -1157,9 +1199,9 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
 
                     if (prefs.getBoolean(Constants.PREF_PLUGIN_VOICE, false)) {
                         StringBuilder voiceMessage = new StringBuilder();
-                        voiceMessage.append("GeoChat from ");
+                        voiceMessage.append(" GeoChat from ");
                         voiceMessage.append(callsign);
-                        voiceMessage.append(" ");
+                        voiceMessage.append(" Message Reads ");
                         voiceMessage.append(message);
                         MeshtasticDropDownReceiver.t1.speak(voiceMessage.toString(), TextToSpeech.QUEUE_FLUSH, null);
                     }
@@ -1204,7 +1246,8 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
 
                     CotEvent cotEvent = new CotEvent();
                     cotEvent.setDetail(cotDetail);
-                    cotEvent.setUID("GeoChat." + deviceCallsign + getMapView().getSelfMarker().getUID() + msgId);
+                    // Reconstruct proper UID format for DM: GeoChat.<senderUid>.<recipientUid>.<messageId>
+                    cotEvent.setUID("GeoChat." + deviceCallsign + "." + getMapView().getSelfMarker().getUID() + "." + msgId);
                     cotEvent.setTime(time);
                     cotEvent.setStart(time);
                     cotEvent.setStale(time.addMinutes(10));
@@ -1219,6 +1262,9 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                         CotMapComponent.getInternalDispatcher().dispatch(cotEvent);
                     } else
                         Log.e(TAG, "cotEvent was not valid");
+                } else {
+                    Log.d(TAG, "TAK_PACKET - unknown content");
+                    Log.d(TAG, String.valueOf(tp));
                 }
 
             } catch (InvalidProtocolBufferException e) {
@@ -1286,10 +1332,9 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
 
     @Override
     public void onCotEvent(CotEvent cotEvent, Bundle bundle) {
-
+        Log.d(TAG, "onCotEvent called: " + cotEvent.toString());
         if (prefs.getBoolean(Constants.PREF_PLUGIN_FROM_SERVER, false)) {
             if (cotEvent.isValid()) {
-
                 CotDetail cotDetail = cotEvent.getDetail();
 
                 if (cotDetail.getChild("__meshtastic") != null) {

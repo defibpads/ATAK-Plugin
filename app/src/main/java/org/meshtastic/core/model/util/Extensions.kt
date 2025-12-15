@@ -18,7 +18,6 @@
 package org.meshtastic.core.model.util
 
 import android.widget.EditText
-//import org.meshtastic.core.model.BuildConfig
 import org.meshtastic.proto.ConfigProtos
 import org.meshtastic.proto.MeshProtos
 
@@ -60,7 +59,6 @@ fun MeshProtos.toOneLineString(): String {
 
 // Return a one line string version of an object (but if a release build, just say 'might be PII)
 fun Any.toPIIString() = "<PII?>"
-
 
 fun ByteArray.toHexString() = joinToString("") { "%02x".format(it) }
 
