@@ -658,7 +658,8 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         Log.d(TAG, "Chat receipt TAKPacket size: " + takPacket.toByteArray().length + " bytes");
 
         DataPacket dp = new DataPacket(
-                DataPacket.ID_BROADCAST,  // Send to specific node if known, otherwise broadcast
+                DataPacket.ID_BROADCAST,    // Send to specific node if known, otherwise broadcast
+                                            // TODO: This should be targetNodeId, but it doesn't work
                 takPacket.toByteArray(),
                 Portnums.PortNum.ATAK_PLUGIN_VALUE,
                 DataPacket.ID_LOCAL,

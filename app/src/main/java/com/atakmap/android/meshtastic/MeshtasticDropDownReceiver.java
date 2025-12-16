@@ -18,6 +18,7 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -26,6 +27,7 @@ import androidx.core.content.ContextCompat;
 
 import com.atakmap.android.dropdown.DropDown;
 import com.atakmap.android.dropdown.DropDownReceiver;
+import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.meshtastic.plugin.R;
 import com.atakmap.android.meshtastic.util.Constants;
@@ -83,6 +85,7 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
     private final MapView mapView;
     private final View mainView;
     private Button voiceMemoBtn, talk, refreshMetricsBtn;
+    private ImageButton settingsBtn;
     private Model model;
     public SpeechService speechService;
     private TextView tv;
@@ -140,6 +143,10 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
         // Setup refresh button
         refreshMetricsBtn = mainView.findViewById(R.id.refreshMetricsBtn);
         refreshMetricsBtn.setOnClickListener(v -> updateMetricsDisplay());
+
+        // Setup settings button
+        settingsBtn = mainView.findViewById(R.id.settingsBtn);
+        settingsBtn.setOnClickListener(v -> openPluginPreferences());
 
         voiceMemoBtn = mainView.findViewById(R.id.voiceMemoBtn);
         voiceMemoBtn.setOnClickListener(v -> {
@@ -835,6 +842,25 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
         }
     }
 
+    /**
+     * Open the plugin preferences screen
+     */
+    private void openPluginPreferences() {
+        try {
+            // Close the dropdown first
+            closeDropDown();
+
+            // Send broadcast to open tool preferences with our plugin's preference key
+            Intent intent = new Intent("com.atakmap.app.ADVANCED_SETTINGS");
+            intent.putExtra("toolkey", pluginContext.getString(R.string.meshtastic_preferences));
+            AtakBroadcast.getInstance().sendBroadcast(intent);
+            Log.d(TAG, "Opening plugin preferences");
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening preferences", e);
+            Toast.makeText(appContext, "Unable to open preferences", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     @Override
     protected void disposeImpl() {
         mapView.removeOnKeyListener(keyListener);
@@ -868,6 +894,7 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
         String converted = convertTextualNumbersInDocument(hypothesis).split(":")[1].split("\n")[0].replace("\"","");
         Log.d(TAG, converted);
         tv.setText("Sending: " + converted);
+        tv.setVisibility(View.VISIBLE);
         //t1.speak(converted, TextToSpeech.QUEUE_FLUSH, null);
 
         hopLimit = MeshtasticReceiver.getHopLimit();
