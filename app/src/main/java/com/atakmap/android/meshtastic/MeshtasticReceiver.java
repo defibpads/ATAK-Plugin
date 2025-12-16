@@ -1330,6 +1330,14 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
         return null;
     }
 
+    /**
+     * Get the count of nodes that have sent ATAK_PLUGIN or ATAK_FORWARDER packets.
+     * This represents the number of ATAK nodes we've actually received data from.
+     */
+    public static int getAtakNodeCount() {
+        return nodeIdToCallsign.size();
+    }
+
     @Override
     public void onCotEvent(CotEvent cotEvent, Bundle bundle) {
         Log.d(TAG, "onCotEvent called: " + cotEvent.toString());

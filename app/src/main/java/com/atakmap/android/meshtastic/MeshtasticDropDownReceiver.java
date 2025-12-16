@@ -759,8 +759,8 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
             metricsChUtil.setText(String.format(Locale.US, "%.1f%%", myInfo.getChannelUtilization()));
             metricsAirTx.setText(String.format(Locale.US, "%.1f%%", myInfo.getAirUtilTx()));
 
-            // Node count
-            int nodeCount = nodes != null ? nodes.size() : 0;
+            // Node count - only count nodes that have sent ATAK_PLUGIN or ATAK_FORWARDER packets
+            int nodeCount = MeshtasticReceiver.getAtakNodeCount();
             metricsNodeCount.setText(String.valueOf(nodeCount));
 
             // Find local node in nodes list for DeviceMetrics
