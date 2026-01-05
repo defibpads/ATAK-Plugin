@@ -1,8 +1,12 @@
 package com.atakmap.android.meshtastic.cot;
 
+import android.os.Bundle;
+
 import com.atakmap.android.cot.CotMapComponent;
+import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.meshtastic.util.Constants;
+import com.atakmap.comms.CommsMapComponent;
 import com.atakmap.coremap.cot.event.CotDetail;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.cot.event.CotPoint;
@@ -24,7 +28,7 @@ public class CotEventProcessor {
     private static final String TAG = "CotEventProcessor";
 
     private long lastPLITime = 0;
-    
+
     public static class ParsedCotData {
         public String callsign;
         public String deviceCallsign;

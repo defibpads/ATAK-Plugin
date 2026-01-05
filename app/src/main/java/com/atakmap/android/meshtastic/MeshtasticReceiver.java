@@ -65,11 +65,12 @@ import org.meshtastic.proto.Portnums;
 import com.google.protobuf.InvalidProtocolBufferException;
 
 import java.io.ByteArrayInputStream;
-
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.util.zip.Inflater;
+import java.util.zip.DataFormatException;
 import java.io.IOException;
 import java.io.StringReader;
-import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -79,22 +80,11 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
-import com.siemens.ct.exi.core.EXIFactory;
-import com.siemens.ct.exi.core.helpers.DefaultEXIFactory;
-import com.siemens.ct.exi.main.api.sax.EXISource;
 import com.ustadmobile.codec2.Codec2;
 
-import org.xml.sax.InputSource;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlPullParserFactory;
-
-import javax.xml.transform.Result;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.sax.SAXSource;
-import javax.xml.transform.stream.StreamResult;
-import com.atakmap.coremap.xml.XMLUtils;
 
 public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceRemote.CotEventListener {
     // constants
@@ -859,22 +849,12 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     return;
                 }
 
-                // Decrypted data is EXI-compressed CoT - decode it
-                try {
-                    EXIFactory exiFactory = DefaultEXIFactory.newInstance();
-                    StringWriter writer = new StringWriter();
-                    Result result = new StreamResult(writer);
-                    InputSource is = new InputSource(new ByteArrayInputStream(decrypted));
-                    SAXSource exiSource = new EXISource(exiFactory);
-                    exiSource.setInputSource(is);
-                    TransformerFactory tf = XMLUtils.getTransformerFactory();
-                    Transformer transformer = tf.newTransformer();
-                    transformer.transform(exiSource, result);
-                    String xmlStr = writer.toString();
-                    Log.d(TAG, "Decrypted EXI to XML: " + xmlStr.length() + " chars");
-
+                // Decrypted data is zlib-compressed CoT - decode it
+                String xmlStr = decompressToXml(decrypted);
+                if (xmlStr != null) {
+                    Log.d(TAG, "Decrypted zlib to XML: " + xmlStr.length() + " chars");
                     CotEvent cotEvent = CotEvent.parse(xmlStr);
-                    if (cotEvent.isValid()) {
+                    if (cotEvent != null && cotEvent.isValid()) {
                         // Add meshtastic marker to prevent re-forwarding
                         CotDetail cotDetail = cotEvent.getDetail();
                         if (cotDetail == null) {
@@ -893,41 +873,37 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     } else {
                         Log.w(TAG, "Decrypted CoT event is not valid");
                     }
-                } catch (Throwable e) {
-                    Log.e(TAG, "Failed to decode decrypted EXI data", e);
-                    e.printStackTrace();
+                } else {
+                    Log.e(TAG, "Failed to decompress decrypted data");
                 }
             } else {
-                // Try to decode as EXI (compressed XML CoT) - unencrypted
-                try {
-                    EXIFactory exiFactory = DefaultEXIFactory.newInstance();
-                    StringWriter writer = new StringWriter();
-                    Result result = new StreamResult(writer);
-                    InputSource is = new InputSource(new ByteArrayInputStream(payload.getBytes()));
-                    SAXSource exiSource = new EXISource(exiFactory);
-                    exiSource.setInputSource(is);
-                    TransformerFactory tf = XMLUtils.getTransformerFactory();
-                    Transformer transformer = tf.newTransformer();
-                    transformer.transform(exiSource, result);
-                    CotEvent cotEvent = CotEvent.parse(writer.toString());
-                    if (cotEvent.isValid()) {
-                        // Add meshtastic marker to prevent re-forwarding
-                        CotDetail cotDetail = cotEvent.getDetail();
-                        if (cotDetail == null) {
-                            cotDetail = new CotDetail("detail");
-                            cotEvent.setDetail(cotDetail);
-                        }
-                        CotDetail meshDetail = new CotDetail("__meshtastic");
-                        cotDetail.addChild(meshDetail);
-                        cotEvent.setDetail(cotDetail);
+                // Try to decode as zlib or raw XML (unencrypted)
+                byte[] rawData = payload.getBytes();
+                String xmlStr = decompressToXml(rawData);
 
-                        CotMapComponent.getInternalDispatcher().dispatch(cotEvent);
-                        if (prefs.getBoolean(Constants.PREF_PLUGIN_SERVER, false)) {
-                            CotMapComponent.getExternalDispatcher().dispatch(cotEvent);
+                // Parse and dispatch the CoT event
+                if (xmlStr != null) {
+                    try {
+                        CotEvent cotEvent = CotEvent.parse(xmlStr);
+                        if (cotEvent != null && cotEvent.isValid()) {
+                            // Add meshtastic marker to prevent re-forwarding
+                            CotDetail cotDetail = cotEvent.getDetail();
+                            if (cotDetail == null) {
+                                cotDetail = new CotDetail("detail");
+                                cotEvent.setDetail(cotDetail);
+                            }
+                            CotDetail meshDetail = new CotDetail("__meshtastic");
+                            cotDetail.addChild(meshDetail);
+                            cotEvent.setDetail(cotDetail);
+
+                            CotMapComponent.getInternalDispatcher().dispatch(cotEvent);
+                            if (prefs.getBoolean(Constants.PREF_PLUGIN_SERVER, false)) {
+                                CotMapComponent.getExternalDispatcher().dispatch(cotEvent);
+                            }
                         }
+                    } catch (Throwable e) {
+                        Log.e(TAG, "Failed to parse CoT XML: " + e.getMessage());
                     }
-                } catch (Throwable e) {
-                    e.printStackTrace();
                 }
             }
         } else if (dataType == 72) {
@@ -1562,6 +1538,13 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
      * @param transferType The type of transfer (Constants.TRANSFER_TYPE_COT or TRANSFER_TYPE_FILE)
      */
     private void processFountainData(byte[] data, String senderNodeId, byte transferType) {
+        // Normalize transfer type (iOS uses ASCII '0'/'1' instead of 0x00/0x01)
+        if (transferType == Constants.TRANSFER_TYPE_COT_ASCII) {
+            transferType = Constants.TRANSFER_TYPE_COT;
+        } else if (transferType == Constants.TRANSFER_TYPE_FILE_ASCII) {
+            transferType = Constants.TRANSFER_TYPE_FILE;
+        }
+
         // Handle file transfer
         if (transferType == Constants.TRANSFER_TYPE_FILE) {
             Log.d(TAG, "Fountain File Received: " + data.length + " bytes from " + senderNodeId);
@@ -1624,22 +1607,19 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
             exiData = decrypted;
         }
 
-        // Try to decode as EXI (compressed XML)
+        // Decompress zlib data to XML (standardized format for cross-platform compatibility)
+        String xmlStr = decompressToXml(exiData);
+        if (xmlStr == null) {
+            Log.e(TAG, "Failed to decompress fountain data, first bytes: " +
+                      bytesToHex(Arrays.copyOf(exiData, Math.min(16, exiData.length))));
+            return;
+        }
+
+        // Parse and dispatch the CoT event
         try {
-            EXIFactory exiFactory = DefaultEXIFactory.newInstance();
-            StringWriter writer = new StringWriter();
-            Result result = new StreamResult(writer);
-            InputSource is = new InputSource(new ByteArrayInputStream(exiData));
-            SAXSource exiSource = new EXISource(exiFactory);
-            exiSource.setInputSource(is);
-            TransformerFactory tf = XMLUtils.getTransformerFactory();
-            Transformer transformer = tf.newTransformer();
-            transformer.transform(exiSource, result);
-            String xmlStr = writer.toString();
-            Log.d(TAG, "Fountain EXI decoded to XML: " + xmlStr.length() + " chars");
             CotEvent cotEvent = CotEvent.parse(xmlStr);
 
-            if (cotEvent.isValid()) {
+            if (cotEvent != null && cotEvent.isValid()) {
                 CotDetail cotDetail = cotEvent.getDetail();
                 if (cotDetail == null) {
                     cotDetail = new CotDetail("detail");
@@ -1657,8 +1637,106 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                 Log.w(TAG, "Fountain data not valid CoT: " + exiData.length + " bytes, xml=" + xmlStr.substring(0, Math.min(200, xmlStr.length())));
             }
         } catch (Throwable e) {
-            Log.e(TAG, "Failed to process fountain data as EXI: " + e.getClass().getName() + ": " + e.getMessage());
-            e.printStackTrace();
+            Log.e(TAG, "Failed to parse CoT XML: " + e.getMessage());
+            Log.d(TAG, "XML content: " + xmlStr.substring(0, Math.min(500, xmlStr.length())));
+        }
+    }
+
+    /**
+     * Decompress data to XML string.
+     * Tries zlib first, then raw XML as fallback.
+     * This is the standardized format for cross-platform compatibility.
+     *
+     * @param data The compressed or raw data
+     * @return XML string, or null on failure
+     */
+    private String decompressToXml(byte[] data) {
+        // Try zlib decompression first (standard format)
+        byte[] decompressed = zlibDecompress(data);
+        if (decompressed != null) {
+            String xmlStr = new String(decompressed, StandardCharsets.UTF_8);
+            Log.d(TAG, "Zlib decompressed to XML: " + xmlStr.length() + " chars");
+            return xmlStr;
+        }
+
+        // Try raw XML (uncompressed fallback)
+        try {
+            String xmlStr = new String(data, StandardCharsets.UTF_8);
+            if (xmlStr.trim().startsWith("<")) {
+                Log.d(TAG, "Treating data as raw XML: " + xmlStr.length() + " chars");
+                return xmlStr;
+            }
+        } catch (Throwable e) {
+            Log.d(TAG, "Raw XML decode failed: " + e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * Decompress zlib or raw deflate compressed data.
+     * Tries standard zlib first, then raw deflate (nowrap mode) for iOS compatibility.
+     *
+     * @param compressed The compressed data
+     * @return Decompressed data, or null on failure
+     */
+    private byte[] zlibDecompress(byte[] compressed) {
+        // Try standard zlib first (with header)
+        byte[] result = tryInflate(compressed, false);
+        if (result != null) {
+            Log.d(TAG, "Zlib decompressed " + compressed.length + " -> " + result.length + " bytes");
+            return result;
+        }
+
+        // Try raw deflate (no zlib header - iOS may use this)
+        result = tryInflate(compressed, true);
+        if (result != null) {
+            Log.d(TAG, "Raw deflate decompressed " + compressed.length + " -> " + result.length + " bytes");
+            return result;
+        }
+
+        Log.d(TAG, "Neither zlib nor raw deflate worked");
+        return null;
+    }
+
+    /**
+     * Try to inflate compressed data.
+     *
+     * @param compressed The compressed data
+     * @param nowrap If true, use raw deflate mode (no zlib header/checksum)
+     * @return Decompressed data, or null on failure
+     */
+    private byte[] tryInflate(byte[] compressed, boolean nowrap) {
+        try {
+            Inflater inflater = new Inflater(nowrap);
+            inflater.setInput(compressed);
+
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream(compressed.length * 4);
+            byte[] buffer = new byte[1024];
+
+            while (!inflater.finished()) {
+                int count = inflater.inflate(buffer);
+                if (count == 0 && inflater.needsInput()) {
+                    break;
+                }
+                outputStream.write(buffer, 0, count);
+            }
+
+            inflater.end();
+            outputStream.close();
+
+            byte[] result = outputStream.toByteArray();
+            if (result.length == 0) {
+                return null;
+            }
+
+            return result;
+        } catch (DataFormatException e) {
+            Log.d(TAG, (nowrap ? "Raw deflate" : "Zlib") + " failed: " + e.getMessage());
+            return null;
+        } catch (IOException e) {
+            Log.e(TAG, "Decompression IO error: " + e.getMessage());
+            return null;
         }
     }
 

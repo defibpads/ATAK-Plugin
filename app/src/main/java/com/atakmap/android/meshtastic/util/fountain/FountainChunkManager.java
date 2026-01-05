@@ -395,13 +395,37 @@ public class FountainChunkManager {
         int transferId = dataBlock.transferId;
 
         // Get or create receive state
-        ReceiveState state = receiveStates.computeIfAbsent(transferId, id -> {
-            Log.d(TAG, "Starting receive for transfer " + id +
+        ReceiveState existingState = receiveStates.get(transferId);
+
+        // Check if existing state has mismatched parameters (indicates a new transfer with same ID)
+        if (existingState != null) {
+            boolean parameterMismatch = existingState.K != dataBlock.sourceBlockCount
+                                     || existingState.totalLength != dataBlock.totalLength
+                                     || !senderNodeId.equals(existingState.senderNodeId);
+
+            if (parameterMismatch) {
+                Log.w(TAG, "Transfer " + transferId + " parameter mismatch detected! " +
+                          "Old: K=" + existingState.K + " len=" + existingState.totalLength + " from=" + existingState.senderNodeId +
+                          ", New: K=" + dataBlock.sourceBlockCount + " len=" + dataBlock.totalLength + " from=" + senderNodeId +
+                          ". Resetting state for new transfer.");
+                receiveStates.remove(transferId);
+                existingState = null;
+            } else if (existingState.isComplete) {
+                Log.d(TAG, "Transfer " + transferId + " already completed, ignoring duplicate block");
+                return;
+            }
+        }
+
+        ReceiveState state = existingState;
+        if (state == null) {
+            Log.d(TAG, "Starting receive for transfer " + transferId +
                       ", K=" + dataBlock.sourceBlockCount +
-                      ", totalLen=" + dataBlock.totalLength);
-            return new ReceiveState(id, dataBlock.sourceBlockCount,
-                                   dataBlock.totalLength, senderNodeId, channel, hopLimit);
-        });
+                      ", totalLen=" + dataBlock.totalLength +
+                      ", from=" + senderNodeId);
+            state = new ReceiveState(transferId, dataBlock.sourceBlockCount,
+                                    dataBlock.totalLength, senderNodeId, channel, hopLimit);
+            receiveStates.put(transferId, state);
+        }
 
         // Regenerate source indices from seed (use codec to ensure same algorithm)
         // Pass transferId so codec can detect if this is block 0 (forced degree 1)
@@ -451,13 +475,24 @@ public class FountainChunkManager {
 
             if (decoded != null && decoded.length > 0) {
                 // Log raw decoded data for debugging
-                Log.d(TAG, "Transfer " + transferId + " raw decoded: " + decoded.length + " bytes");
-                if (decoded.length >= 17) {
-                    Log.d(TAG, "Transfer " + transferId + " raw first 17 bytes (type+data): " + String.format(
-                        "%02X | %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
-                        decoded[0],  // type byte
-                        decoded[1], decoded[2], decoded[3], decoded[4], decoded[5], decoded[6], decoded[7], decoded[8],
-                        decoded[9], decoded[10], decoded[11], decoded[12], decoded[13], decoded[14], decoded[15], decoded[16]));
+                Log.d(TAG, "Transfer " + transferId + " raw decoded: " + decoded.length + " bytes from " + state.blocks.size() + " blocks");
+
+                // Log first 32 bytes to help diagnose decoding issues
+                int logLen = Math.min(32, decoded.length);
+                StringBuilder hexDump = new StringBuilder();
+                for (int i = 0; i < logLen; i++) {
+                    hexDump.append(String.format("%02X ", decoded[i]));
+                }
+                Log.d(TAG, "Transfer " + transferId + " raw bytes: " + hexDump.toString());
+
+                // Check if decoded data looks valid (type byte should be 0x00, 0x01, 0x30, or 0x31)
+                byte firstByte = decoded[0];
+                boolean validType = (firstByte == 0x00 || firstByte == 0x01 ||
+                                    firstByte == 0x30 || firstByte == 0x31);
+                if (!validType) {
+                    Log.w(TAG, "Transfer " + transferId + " WARNING: First byte 0x" +
+                              String.format("%02X", firstByte) + " is not a valid transfer type! " +
+                              "Decoding may have failed.");
                 }
 
                 // Extract transfer type from first byte

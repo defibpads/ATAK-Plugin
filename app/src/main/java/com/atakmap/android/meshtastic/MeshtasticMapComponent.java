@@ -13,11 +13,14 @@ import android.widget.ScrollView;
 
 import androidx.annotation.NonNull;
 
+import com.atakmap.android.cot.CotMapAdapter;
+import com.atakmap.android.cot.CotMapComponent;
 import com.atakmap.android.cot.importer.MapItemImporter;
 import com.atakmap.android.cotdetails.CoTInfoView;
 import com.atakmap.android.data.URIContentManager;
 import com.atakmap.android.dropdown.DropDownMapComponent;
 import com.atakmap.android.importexport.CotEventFactory;
+import com.atakmap.android.importexport.ImporterManager;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.items.MapItemsDatabase;
 import com.atakmap.android.maps.MapComponent;
@@ -27,6 +30,7 @@ import com.atakmap.android.maps.MapGroup;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapTouchController;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.android.maps.Marker;
 import com.atakmap.android.maps.visibility.MapItemVisibilityListener;
 import com.atakmap.android.meshtastic.cot.CotEventProcessor;
 import com.atakmap.android.meshtastic.plugin.R;
@@ -39,6 +43,7 @@ import com.atakmap.android.meshtastic.util.NotificationHelper;
 import com.atakmap.app.preferences.ToolsPreferenceFragment;
 import com.atakmap.commoncommo.CoTMessageListener;
 import com.atakmap.comms.CommsMapComponent;
+import com.atakmap.comms.CotService;
 import com.atakmap.comms.CotServiceRemote;
 import com.atakmap.coremap.cot.event.CotDetail;
 import com.atakmap.coremap.cot.event.CotEvent;
@@ -56,17 +61,10 @@ import org.meshtastic.proto.Portnums;
 import com.atakmap.map.AtakMapView;
 import com.atakmap.map.DefaultMapTouchHandler;
 import com.google.protobuf.ByteString;
-import com.siemens.ct.exi.core.EXIFactory;
-import com.siemens.ct.exi.core.helpers.DefaultEXIFactory;
-import com.siemens.ct.exi.main.api.sax.EXIResult;
-
-import org.osmdroid.events.MapEventsReceiver;
-import org.xml.sax.InputSource;
-import org.xml.sax.XMLReader;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.StringReader;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
@@ -74,19 +72,13 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import javax.xml.parsers.SAXParser;
-import javax.xml.parsers.SAXParserFactory;
-import javax.xml.XMLConstants;
-import com.atakmap.coremap.xml.XMLUtils;
+import java.util.zip.Deflater;
 
 public class MeshtasticMapComponent extends DropDownMapComponent
         implements CommsMapComponent.PreSendProcessor,
         SharedPreferences.OnSharedPreferenceChangeListener,
         CotServiceRemote.ConnectionListener,
-        MeshServiceManager.ConnectionListener,
-        MapEventDispatcher.MapEventDispatchListener,
-        MapEventDispatcher.OnMapEventListener {
+        MeshServiceManager.ConnectionListener {
 
     private static final String TAG = "MeshtasticMapComponent";
 
@@ -163,7 +155,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
     private void startHealthCheckTimer() {
         stopHealthCheckTimer(); // Cancel any existing timer
         healthCheckTimer = new Timer("MeshtasticHealthCheck", true);
-        healthCheckTimer.scheduleAtFixedRate(new TimerTask() {
+        healthCheckTimer.schedule(new TimerTask() {
             @Override
             public void run() {
                 performHealthCheck();
@@ -314,12 +306,6 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                         new PluginPreferencesFragment(pluginContext)
                 )
         );
-
-        MapEventDispatcher dispatcher = view.getMapEventDispatcher();
-        dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_DROPPED, this);
-        dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_CONTINUED, this);
-        dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_STARTED, this);
-        dispatcher.addMapEventListener(MapEvent.ITEM_LONG_PRESS, this);
     }
 
     @Override
@@ -361,10 +347,15 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         // Check if this is a Meshtastic message (don't forward back)
         CotDetail cotDetail = cotEvent.getDetail();
         CotDetail meshtasticDetail = cotDetail != null ? cotDetail.getChild("__meshtastic") : null;
+
         if (meshtasticDetail != null) {
             Log.d(TAG, "Meshtastic message, don't forward");
-            cotDetail.removeChild(meshtasticDetail);
-            cotEvent.setDetail(cotDetail);
+            for (MapItem mi:MapView.getMapView().getRootGroup().getAllItems()) {
+                if (mi.getUID().equals(cotEvent.getUID())) {
+                   mi.removeMetaData("__meshtastic");
+                   mi.persist(MapView.getMapView().getMapEventDispatcher(), null, this.getClass());
+                }
+            }
             return;
         }
 
@@ -395,7 +386,8 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 handleEncryptedMessage(cotEvent, hopLimit, channel, psk);
                 return;
             } else {
-                Log.w(TAG, "Extra encryption enabled but PSK is empty - sending unencrypted");
+                Log.w(TAG, "Extra encryption enabled but PSK is empty, aborting");
+                return;
             }
         }
 
@@ -688,41 +680,22 @@ public class MeshtasticMapComponent extends DropDownMapComponent
         }
 
         executorService.execute(() -> {
-            Log.d(TAG, "Sending Chunks");
+            Log.d(TAG, "Sending generic CoT");
 
             byte[] cotAsBytes;
             try {
-                // Compress CoT to EXI format
-                EXIFactory exiFactory = DefaultEXIFactory.newInstance();
-                ByteArrayOutputStream osEXI = new ByteArrayOutputStream();
-                EXIResult exiResult = new EXIResult(exiFactory);
-                exiResult.setOutputStream(osEXI);
-
-                SAXParserFactory saxParserFactory = SAXParserFactory.newInstance();
-                saxParserFactory.setNamespaceAware(true);
-                try {
-                    saxParserFactory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-                    saxParserFactory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-                    //saxParserFactory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true); // no android support
-                    saxParserFactory.setFeature("http://xml.org/sax/features/validation", false);
-                    saxParserFactory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to configure secure SAXParserFactory", e);
+                // Compress CoT XML to zlib format for cross-platform compatibility
+                byte[] xmlBytes = cotEvent.toString().getBytes(StandardCharsets.UTF_8);
+                cotAsBytes = zlibCompress(xmlBytes);
+                if (cotAsBytes == null) {
+                    Log.e(TAG, "Failed to compress CoT event");
+                    return;
                 }
-                SAXParser newSAXParser = saxParserFactory.newSAXParser();
-                XMLReader xmlReader = newSAXParser.getXMLReader();
-                xmlReader.setContentHandler(exiResult.getHandler());
-
-                InputSource stream = new InputSource(new StringReader(cotEvent.toString()));
-                xmlReader.parse(stream);
-                cotAsBytes = osEXI.toByteArray();
-                osEXI.close();
+                Log.d(TAG, "Compressed " + xmlBytes.length + " -> " + cotAsBytes.length + " bytes");
             } catch (Exception e) {
                 Log.e(TAG, "Failed to compress CoT event", e);
                 return;
             }
-
-            Log.d(TAG, "Size: " + cotAsBytes.length);
 
             // Small messages can be sent directly (max payload is 233 bytes)
             if (cotAsBytes.length < 233) {
@@ -754,8 +727,7 @@ public class MeshtasticMapComponent extends DropDownMapComponent
             editor.putBoolean(Constants.PREF_PLUGIN_CHUNKING, true);
             editor.apply();
 
-            // Log EXI data details for debugging
-            Log.d(TAG, "Sender EXI data: " + cotAsBytes.length + " bytes");
+            Log.d(TAG, "Sender zlib data: " + cotAsBytes.length + " bytes");
 
             int transferId = fountainChunkManager.send(cotAsBytes, channel, hopLimit, Constants.TRANSFER_TYPE_COT);
             if (transferId < 0) {
@@ -771,8 +743,39 @@ public class MeshtasticMapComponent extends DropDownMapComponent
     }
 
     /**
+     * Compress data using zlib (standard deflate with zlib header).
+     * This format is compatible with iOS and other platforms.
+     *
+     * @param data The data to compress
+     * @return Compressed data, or null on failure
+     */
+    private byte[] zlibCompress(byte[] data) {
+        try {
+            Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION);
+            deflater.setInput(data);
+            deflater.finish();
+
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length);
+            byte[] buffer = new byte[1024];
+
+            while (!deflater.finished()) {
+                int count = deflater.deflate(buffer);
+                outputStream.write(buffer, 0, count);
+            }
+
+            deflater.end();
+            outputStream.close();
+
+            return outputStream.toByteArray();
+        } catch (IOException e) {
+            Log.e(TAG, "Zlib compression failed", e);
+            return null;
+        }
+    }
+
+    /**
      * Handle outgoing messages with extra encryption enabled.
-     * All messages are EXI compressed, encrypted with AES-256-GCM, and sent via ATAK_FORWARDER.
+     * All messages are zlib compressed, encrypted with AES-256-GCM, and sent via ATAK_FORWARDER.
      */
     private void handleEncryptedMessage(CotEvent cotEvent, int hopLimit, int channel, String psk) {
         if (prefs.getBoolean(Constants.PREF_PLUGIN_CHUNKING, false)) {
@@ -785,38 +788,20 @@ public class MeshtasticMapComponent extends DropDownMapComponent
 
             byte[] cotAsBytes;
             try {
-                // Compress CoT to EXI format
-                EXIFactory exiFactory = DefaultEXIFactory.newInstance();
-                ByteArrayOutputStream osEXI = new ByteArrayOutputStream();
-                EXIResult exiResult = new EXIResult(exiFactory);
-                exiResult.setOutputStream(osEXI);
-
-                SAXParserFactory saxParserFactory = SAXParserFactory.newInstance();
-                saxParserFactory.setNamespaceAware(true);
-                try {
-                    saxParserFactory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-                    saxParserFactory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-                    saxParserFactory.setFeature("http://xml.org/sax/features/validation", false);
-                    saxParserFactory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to configure secure SAXParserFactory", e);
+                // Compress CoT XML to zlib format for cross-platform compatibility
+                byte[] xmlBytes = cotEvent.toString().getBytes(StandardCharsets.UTF_8);
+                cotAsBytes = zlibCompress(xmlBytes);
+                if (cotAsBytes == null) {
+                    Log.e(TAG, "Failed to compress CoT event");
+                    return;
                 }
-                SAXParser newSAXParser = saxParserFactory.newSAXParser();
-                XMLReader xmlReader = newSAXParser.getXMLReader();
-                xmlReader.setContentHandler(exiResult.getHandler());
-
-                InputSource stream = new InputSource(new StringReader(cotEvent.toString()));
-                xmlReader.parse(stream);
-                cotAsBytes = osEXI.toByteArray();
-                osEXI.close();
+                Log.d(TAG, "Compressed " + xmlBytes.length + " -> " + cotAsBytes.length + " bytes");
             } catch (Exception e) {
                 Log.e(TAG, "Failed to compress CoT event", e);
                 return;
             }
 
-            Log.d(TAG, "EXI compressed size: " + cotAsBytes.length);
-
-            // Encrypt the EXI data
+            // Encrypt the zlib data
             byte[] encryptedBytes = CryptoUtils.encrypt(cotAsBytes, psk);
             if (encryptedBytes == null) {
                 Log.e(TAG, "Failed to encrypt message");
@@ -998,33 +983,5 @@ public class MeshtasticMapComponent extends DropDownMapComponent
 
     public static FountainChunkManager getFountainChunkManager() {
         return instance != null ? instance.fountainChunkManager : null;
-    }
-
-    // Helper to convert bytes to hex string for logging
-    private static String bytesToHex(byte[] bytes) {
-        if (bytes == null) return "null";
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02X", b));
-        }
-        return sb.toString();
-    }
-
-    @Override
-    public void onMapEvent(MapEvent mapEvent) {
-
-    }
-
-    @Override
-    public void onMapItemMapEvent(MapItem item, MapEvent event) {
-        String type = event.getType();
-        if (type.equals(MapEvent.ITEM_DRAG_STARTED)
-                || type.equals(MapEvent.ITEM_DRAG_CONTINUED)
-                || type.equals(MapEvent.ITEM_DRAG_DROPPED)) {
-            Log.d(TAG, "Item drag event: " + type + " for item: " + item.getTitle());
-        }
-        if (type.equals(MapEvent.ITEM_LONG_PRESS)) {
-            Log.d(TAG, "Item long press event for item: " + item.getTitle());
-        }
     }
 }

@@ -9,7 +9,7 @@
 buildscript {
 
 
-    ext.PLUGIN_VERSION = "1.1.30"
+    ext.PLUGIN_VERSION = "1.1.31"
     ext.ATAK_VERSION = "5.4.0"
 
     def takdevVersion = '3.+'
@@ -105,7 +105,7 @@ def supportedFlavors =
 ]
 
 android {
-    compileSdk 36
+    compileSdk 33
     namespace 'com.atakmap.android.meshtastic.plugin'
 
     buildFeatures {
@@ -246,7 +246,7 @@ android {
 
     defaultConfig {
         minSdkVersion 28
-        targetSdkVersion 34
+        targetSdkVersion 33
 
         def runTasks = gradle.startParameter.taskNames
         if(runTasks.toString().contains('bundle')) {
