@@ -393,49 +393,31 @@ data class NodeInfo(
         }
     }
 
+    // Must match @Parcelize format - uses readParcelable/writeParcelable for nullable nested types
+    @Suppress("DEPRECATION")
     constructor(parcel: Parcel) : this(
         parcel.readInt(),
-        if (parcel.readInt() == 1) MeshUser(parcel) else null,
-        if (parcel.readInt() == 1) Position(parcel) else null,
+        parcel.readParcelable(MeshUser::class.java.classLoader),
+        parcel.readParcelable(Position::class.java.classLoader),
         parcel.readFloat(),
         parcel.readInt(),
         parcel.readInt(),
-        if (parcel.readInt() == 1) DeviceMetrics(parcel) else null,
+        parcel.readParcelable(DeviceMetrics::class.java.classLoader),
         parcel.readInt(),
-        if (parcel.readInt() == 1) EnvironmentMetrics(parcel) else null,
+        parcel.readParcelable(EnvironmentMetrics::class.java.classLoader),
         parcel.readInt(),
     )
 
     override fun writeToParcel(parcel: Parcel, flags: Int) {
         parcel.writeInt(num)
-        if (user != null) {
-            parcel.writeInt(1)
-            user!!.writeToParcel(parcel, flags)
-        } else {
-            parcel.writeInt(0)
-        }
-        if (position != null) {
-            parcel.writeInt(1)
-            position!!.writeToParcel(parcel, flags)
-        } else {
-            parcel.writeInt(0)
-        }
+        parcel.writeParcelable(user, flags)
+        parcel.writeParcelable(position, flags)
         parcel.writeFloat(snr)
         parcel.writeInt(rssi)
         parcel.writeInt(lastHeard)
-        if (deviceMetrics != null) {
-            parcel.writeInt(1)
-            deviceMetrics!!.writeToParcel(parcel, flags)
-        } else {
-            parcel.writeInt(0)
-        }
+        parcel.writeParcelable(deviceMetrics, flags)
         parcel.writeInt(channel)
-        if (environmentMetrics != null) {
-            parcel.writeInt(1)
-            environmentMetrics!!.writeToParcel(parcel, flags)
-        } else {
-            parcel.writeInt(0)
-        }
+        parcel.writeParcelable(environmentMetrics, flags)
         parcel.writeInt(hopsAway)
     }
 
