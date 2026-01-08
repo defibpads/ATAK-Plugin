@@ -6,7 +6,7 @@ android {
     namespace "org.vosk.models"
     compileSdk 36
     defaultConfig {
-        minSdkVersion 28
+        minSdkVersion 21
         targetSdkVersion 34
     }
     buildFeatures {
