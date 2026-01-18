@@ -462,10 +462,13 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 0,  // hopStart
                 0f, // snr
                 0,  // rssi
-                null, // replyId,
+                null, // replyId
                 null, // relayNode
                 0,    // relays
-                false // viaMqtt
+                false, // viaMqtt
+                0,    // retryCount
+                0,    // emoji
+                null  // sfppHash
         );
 
         meshServiceManager.sendToMesh(dp);
@@ -493,10 +496,13 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 0,  // hopStart
                 0f, // snr
                 0,  // rssi
-                null, // replyId,
+                null, // replyId
                 null, // relayNode
                 0,    // relays
-                false // viaMqtt
+                false, // viaMqtt
+                0,    // retryCount
+                0,    // emoji
+                null  // sfppHash
         );
 
         meshServiceManager.sendToMesh(dp);
@@ -533,7 +539,10 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                     null, // replyId,
                     null, // relayNode
                     0,    // relays
-                    false // viaMqtt
+                    false, // viaMqtt
+                    0,    // retryCount
+                    0,    // emoji
+                    null  // sfppHash
             );
         } else {
             // Regular ATAK device
@@ -559,7 +568,10 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                     null, // replyId,
                     null, // relayNode
                     0,    // relays
-                    false // viaMqtt
+                    false, // viaMqtt
+                    0,    // retryCount
+                    0,    // emoji
+                    null  // sfppHash
             );
         }
 
@@ -667,7 +679,10 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                 null, // replyId,
                 null, // relayNode
                 0,    // relays
-                false // viaMqtt
+                false, // viaMqtt
+                0,    // retryCount
+                0,    // emoji
+                null  // sfppHash
         );
 
         meshServiceManager.sendToMesh(dp);
@@ -717,7 +732,10 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                         null, // replyId,
                         null, // relayNode
                         0,    // relays
-                        false // viaMqtt
+                        false, // viaMqtt
+                        0,    // retryCount
+                        0,    // emoji
+                        null  // sfppHash
                 );
                 meshServiceManager.sendToMesh(dp);
                 return;
@@ -830,7 +848,10 @@ public class MeshtasticMapComponent extends DropDownMapComponent
                         null, // replyId,
                         null, // relayNode
                         0,    // relays
-                        false // viaMqtt
+                        false, // viaMqtt
+                        0,    // retryCount
+                        0,    // emoji
+                        null  // sfppHash
                 );
                 meshServiceManager.sendToMesh(dp);
                 return;

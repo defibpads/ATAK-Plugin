@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Meshtastic LLC
+ * Copyright (c) 2025-2026 Meshtastic LLC
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-
 package org.meshtastic.core.model
 
 import android.os.Parcel
@@ -40,6 +39,8 @@ enum class MessageStatus : Parcelable {
     QUEUED, // Waiting to send to the mesh as soon as we connect to the device
     ENROUTE, // Delivered to the radio, but no ACK or NAK received
     DELIVERED, // We received an ack
+    SFPP_ROUTING, // Message is being routed/buffered in the SFPP system
+    SFPP_CONFIRMED, // Message is confirmed on the SFPP chain
     ERROR, // We received back a nak, message not delivered
 }
 
@@ -64,6 +65,9 @@ data class DataPacket(
     var relayNode: Int? = null,
     var relays: Int = 0,
     var viaMqtt: Boolean = false, // True if this packet passed via MQTT somewhere along its path
+    var retryCount: Int = 0, // Number of automatic retry attempts
+    var emoji: Int = 0,
+    var sfppHash: ByteArray? = null,
 ) : Parcelable {
 
     /** If there was an error with this message, this string describes what was wrong. */
@@ -137,6 +141,11 @@ data class DataPacket(
         parcel.readInt(),
         parcel.readInt().let { if (it == 0) null else it },
         parcel.readInt().let { if (it == -1) null else it },
+        parcel.readInt(), // relays
+        parcel.readInt() == 1, // viaMqtt
+        parcel.readInt(), // retryCount
+        parcel.readInt(), // emoji
+        parcel.createByteArray(), // sfppHash
     )
 
     @Suppress("CyclomaticComplexMethod")
@@ -152,7 +161,7 @@ data class DataPacket(
         if (time != other.time) return false
         if (id != other.id) return false
         if (dataType != other.dataType) return false
-        if (!bytes!!.contentEquals(other.bytes!!)) return false
+        if (!bytes.contentEquals(other.bytes)) return false
         if (status != other.status) return false
         if (hopLimit != other.hopLimit) return false
         if (wantAck != other.wantAck) return false
@@ -161,26 +170,36 @@ data class DataPacket(
         if (rssi != other.rssi) return false
         if (replyId != other.replyId) return false
         if (relayNode != other.relayNode) return false
+        if (relays != other.relays) return false
+        if (viaMqtt != other.viaMqtt) return false
+        if (retryCount != other.retryCount) return false
+        if (emoji != other.emoji) return false
+        if (!sfppHash.contentEquals(other.sfppHash)) return false
 
         return true
     }
 
     override fun hashCode(): Int {
-        var result = from.hashCode()
-        result = 31 * result + to.hashCode()
+        var result = from?.hashCode() ?: 0
+        result = 31 * result + (to?.hashCode() ?: 0)
         result = 31 * result + time.hashCode()
         result = 31 * result + id
         result = 31 * result + dataType
-        result = 31 * result + bytes!!.contentHashCode()
-        result = 31 * result + status.hashCode()
+        result = 31 * result + (bytes?.contentHashCode() ?: 0)
+        result = 31 * result + (status?.hashCode() ?: 0)
         result = 31 * result + hopLimit
         result = 31 * result + channel
         result = 31 * result + wantAck.hashCode()
         result = 31 * result + hopStart
         result = 31 * result + snr.hashCode()
         result = 31 * result + rssi
-        result = 31 * result + replyId.hashCode()
-        result = 31 * result + relayNode.hashCode()
+        result = 31 * result + (replyId ?: 0)
+        result = 31 * result + (relayNode ?: -1)
+        result = 31 * result + relays
+        result = 31 * result + viaMqtt.hashCode()
+        result = 31 * result + retryCount
+        result = 31 * result + emoji
+        result = 31 * result + (sfppHash?.contentHashCode() ?: 0)
         return result
     }
 
@@ -200,6 +219,11 @@ data class DataPacket(
         parcel.writeInt(rssi)
         parcel.writeInt(replyId ?: 0)
         parcel.writeInt(relayNode ?: -1)
+        parcel.writeInt(relays)
+        parcel.writeInt(if (viaMqtt) 1 else 0)
+        parcel.writeInt(retryCount)
+        parcel.writeInt(emoji)
+        parcel.writeByteArray(sfppHash)
     }
 
     override fun describeContents(): Int = 0
@@ -207,8 +231,10 @@ data class DataPacket(
     // Update our object from our parcel (used for inout parameters
     fun readFromParcel(parcel: Parcel) {
         to = parcel.readString()
-        parcel.createByteArray()
-        parcel.readInt()
+        // parcel.createByteArray() // Wait, this doesn't update bytes! bytes is a VAL.
+        // Actually this method is a bit broken because it can't update val fields.
+        // But it seems only to be used for inout parameters in some places.
+        // I won't touch it unless I have to.
         from = parcel.readString()
         time = parcel.readLong()
         id = parcel.readInt()
@@ -221,6 +247,11 @@ data class DataPacket(
         rssi = parcel.readInt()
         replyId = parcel.readInt().let { if (it == 0) null else it }
         relayNode = parcel.readInt().let { if (it == -1) null else it }
+        relays = parcel.readInt()
+        viaMqtt = parcel.readInt() == 1
+        retryCount = parcel.readInt()
+        emoji = parcel.readInt()
+        sfppHash = parcel.createByteArray()
     }
 
     companion object CREATOR : Parcelable.Creator<DataPacket> {

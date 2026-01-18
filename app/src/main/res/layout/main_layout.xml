@@ -66,6 +66,40 @@
 
         </LinearLayout>
 
+        <!-- Role Warning Banner (shown when Role is not TAK) -->
+        <LinearLayout
+            android:id="@+id/roleWarningBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#B71C1C"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/roleWarningText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Device Role is not set to TAK!\n\nFor optimal ATAK performance, your Meshtastic device Role must be set to TAK."
+                android:textSize="13sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:lineSpacingExtra="2dp" />
+
+            <Button
+                android:id="@+id/setRoleTakBtn"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="10dp"
+                android:text="Set Role to TAK"
+                android:textSize="13sp"
+                android:textColor="#B71C1C"
+                android:textStyle="bold"
+                android:background="#FFFFFF" />
+
+        </LinearLayout>
+
         <!-- Device Metrics Card -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -334,7 +368,8 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
 
                 <!-- Uptime -->
                 <LinearLayout
@@ -377,12 +412,112 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Nodes"
+                        android:text="Active Nodes"
                         android:textSize="10sp"
                         android:textColor="#888888" />
 
                     <TextView
                         android:id="@+id/metricsNodeCount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textSize="13sp"
+                        android:textColor="#67EA94"
+                        android:textStyle="bold"
+                        android:layout_marginTop="2dp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Metrics Grid Row 5 - Config Info -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
+                <!-- Region -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/metric_item_bg"
+                    android:padding="10dp"
+                    android:layout_marginRight="4dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Region"
+                        android:textSize="10sp"
+                        android:textColor="#888888" />
+
+                    <TextView
+                        android:id="@+id/metricsRegion"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textSize="13sp"
+                        android:textColor="#FFFFFF"
+                        android:layout_marginTop="2dp" />
+
+                </LinearLayout>
+
+                <!-- LoRa Preset -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/metric_item_bg"
+                    android:padding="10dp"
+                    android:layout_marginLeft="4dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="LoRa Preset"
+                        android:textSize="10sp"
+                        android:textColor="#888888" />
+
+                    <TextView
+                        android:id="@+id/metricsLoraPreset"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textSize="13sp"
+                        android:textColor="#FFFFFF"
+                        android:layout_marginTop="2dp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Metrics Grid Row 6 - Role -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <!-- Role -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/metric_item_bg"
+                    android:padding="10dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Role"
+                        android:textSize="10sp"
+                        android:textColor="#888888" />
+
+                    <TextView
+                        android:id="@+id/metricsRole"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="--"

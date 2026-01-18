@@ -21,6 +21,7 @@ import android.net.Uri;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -96,6 +97,10 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
     private TextView metricsNodeName, metricsModel, metricsFirmware;
     private TextView metricsBattery, metricsVoltage, metricsChUtil;
     private TextView metricsAirTx, metricsUptime, metricsNodeCount;
+    private TextView metricsRegion, metricsLoraPreset, metricsRole;
+    // Role warning banner
+    private LinearLayout roleWarningBanner;
+    private Button setRoleTakBtn;
     private int toggle = 0;
     private View.OnKeyListener keyListener;
     public static TextToSpeech t1;
@@ -142,6 +147,14 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
         metricsAirTx = mainView.findViewById(R.id.metricsAirTx);
         metricsUptime = mainView.findViewById(R.id.metricsUptime);
         metricsNodeCount = mainView.findViewById(R.id.metricsNodeCount);
+        metricsRegion = mainView.findViewById(R.id.metricsRegion);
+        metricsLoraPreset = mainView.findViewById(R.id.metricsLoraPreset);
+        metricsRole = mainView.findViewById(R.id.metricsRole);
+
+        // Role warning banner
+        roleWarningBanner = mainView.findViewById(R.id.roleWarningBanner);
+        setRoleTakBtn = mainView.findViewById(R.id.setRoleTakBtn);
+        setRoleTakBtn.setOnClickListener(v -> setDeviceRoleToTak());
 
         // Setup refresh button
         refreshMetricsBtn = mainView.findViewById(R.id.refreshMetricsBtn);
@@ -454,10 +467,13 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
                         0,  // hopStart
                         0f, // snr
                         0,  // rssi
-                        null, // replyId,
+                        null, // replyId
                         null, // relayNode
                         0,    // relays
-                        false // viaMqtt
+                        false, // viaMqtt
+                        0,    // retryCount
+                        0,    // emoji
+                        null  // sfppHash
                 );
                 
                 MeshtasticMapComponent.sendToMesh(dp);
@@ -738,12 +754,16 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
     private void updateMetricsDisplay() {
         try {
             Log.d(TAG, "updateMetricsDisplay: fetching node info...");
-            MyNodeInfo myInfo = MeshtasticMapComponent.getMyNodeInfo();
+
+            // Use getMyNodeID() which is more reliable than getMyNodeInfo()
+            String myNodeId = MeshtasticMapComponent.getMyNodeID();
             List<NodeInfo> nodes = MeshtasticMapComponent.getNodes();
+            MyNodeInfo myInfo = MeshtasticMapComponent.getMyNodeInfo(); // May be null
 
-            Log.d(TAG, "updateMetricsDisplay: myInfo=" + myInfo + ", nodes=" + (nodes != null ? nodes.size() : "null"));
+            Log.d(TAG, "updateMetricsDisplay: myNodeId=" + myNodeId + ", myInfo=" + myInfo + ", nodes=" + (nodes != null ? nodes.size() : "null"));
 
-            if (myInfo == null) {
+            // Check connection using myNodeId (more reliable)
+            if (myNodeId == null || myNodeId.isEmpty()) {
                 metricsNodeName.setText("Not connected");
                 metricsModel.setText("--");
                 metricsFirmware.setText("--");
@@ -753,35 +773,135 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
                 metricsAirTx.setText("--");
                 metricsUptime.setText("--");
                 metricsNodeCount.setText("--");
+                metricsRegion.setText("--");
+                metricsLoraPreset.setText("--");
+                metricsRole.setText("--");
+                roleWarningBanner.setVisibility(View.GONE);
                 return;
             }
 
-            // Basic info from MyNodeInfo
-            Log.d(TAG, "updateMetricsDisplay: myNodeNum=" + myInfo.getMyNodeNum() +
-                  ", model=" + myInfo.getModel() +
-                  ", firmware=" + myInfo.getFirmwareVersion() +
-                  ", chUtil=" + myInfo.getChannelUtilization() +
-                  ", airTx=" + myInfo.getAirUtilTx());
-            metricsModel.setText(myInfo.getModel() != null ? myInfo.getModel() : "--");
-            metricsFirmware.setText(myInfo.getFirmwareVersion() != null ? myInfo.getFirmwareVersion() : "--");
-            metricsChUtil.setText(String.format(Locale.US, "%.1f%%", myInfo.getChannelUtilization()));
-            metricsAirTx.setText(String.format(Locale.US, "%.1f%%", myInfo.getAirUtilTx()));
+            // Parse myNodeId to get the node number (format is "!hexstring")
+            int myNodeNum = 0;
+            try {
+                if (myNodeId.startsWith("!")) {
+                    myNodeNum = (int) Long.parseLong(myNodeId.substring(1), 16);
+                }
+            } catch (NumberFormatException e) {
+                Log.w(TAG, "Could not parse myNodeId: " + myNodeId);
+            }
 
-            // Node count - only count nodes that have sent ATAK_PLUGIN or ATAK_FORWARDER packets
-            int nodeCount = MeshtasticReceiver.getAtakNodeCount();
-            metricsNodeCount.setText(String.valueOf(nodeCount));
-
-            // Find local node in nodes list for DeviceMetrics
+            // Find local node in nodes list using myNodeNum
             NodeInfo localNode = null;
-            if (nodes != null) {
+            if (nodes != null && myNodeNum != 0) {
                 for (NodeInfo node : nodes) {
-                    if (node.getNum() == myInfo.getMyNodeNum()) {
+                    if (node.getNum() == myNodeNum) {
                         localNode = node;
                         break;
                     }
                 }
             }
 
+            // Basic info from MyNodeInfo (if available) or fallback to localNode
+            if (myInfo != null) {
+                Log.d(TAG, "updateMetricsDisplay: myNodeNum=" + myInfo.getMyNodeNum() +
+                      ", model=" + myInfo.getModel() +
+                      ", firmware=" + myInfo.getFirmwareVersion() +
+                      ", chUtil=" + myInfo.getChannelUtilization() +
+                      ", airTx=" + myInfo.getAirUtilTx());
+                metricsModel.setText(myInfo.getModel() != null ? myInfo.getModel() : "--");
+                metricsFirmware.setText(myInfo.getFirmwareVersion() != null ? myInfo.getFirmwareVersion() : "--");
+                metricsChUtil.setText(String.format(Locale.US, "%.1f%%", myInfo.getChannelUtilization()));
+                metricsAirTx.setText(String.format(Locale.US, "%.1f%%", myInfo.getAirUtilTx()));
+            } else if (localNode != null) {
+                // MyNodeInfo not available, get data from localNode instead
+                Log.w(TAG, "updateMetricsDisplay: myInfo is null (Meshtastic service didn't return it), using localNode for data");
+
+                // Model from user.hwModelString
+                if (localNode.getUser() != null && localNode.getUser().getHwModelString() != null) {
+                    metricsModel.setText(localNode.getUser().getHwModelString());
+                } else {
+                    metricsModel.setText("--");
+                }
+
+                // Firmware not available from NodeInfo - only available from MyNodeInfo
+                metricsFirmware.setText("N/A");
+
+                // Ch Util and Air TX from deviceMetrics
+                DeviceMetrics dm = localNode.getDeviceMetrics();
+                if (dm != null) {
+                    metricsChUtil.setText(String.format(Locale.US, "%.1f%%", dm.getChannelUtilization()));
+                    metricsAirTx.setText(String.format(Locale.US, "%.1f%%", dm.getAirUtilTx()));
+                } else {
+                    metricsChUtil.setText("--");
+                    metricsAirTx.setText("--");
+                }
+            } else {
+                // Neither myInfo nor localNode available
+                Log.d(TAG, "updateMetricsDisplay: both myInfo and localNode are null");
+                metricsModel.setText("--");
+                metricsFirmware.setText("--");
+                metricsChUtil.setText("--");
+                metricsAirTx.setText("--");
+            }
+
+            // Node count - only count nodes that have sent ATAK_PLUGIN or ATAK_FORWARDER packets
+            int nodeCount = MeshtasticReceiver.getAtakNodeCount();
+            metricsNodeCount.setText(String.valueOf(nodeCount));
+
+            // Get device config for Region, LoRa Preset, and Role
+            try {
+                byte[] config = MeshtasticMapComponent.getConfig();
+                if (config != null && config.length > 0) {
+                    LocalOnlyProtos.LocalConfig localConfig = LocalOnlyProtos.LocalConfig.parseFrom(config);
+
+                    // LoRa Config - Region and Modem Preset
+                    ConfigProtos.Config.LoRaConfig loraConfig = localConfig.getLora();
+                    if (loraConfig != null) {
+                        // Region
+                        String regionName = loraConfig.getRegion().name();
+                        metricsRegion.setText(formatRegionName(regionName));
+
+                        // LoRa Preset
+                        String presetName = loraConfig.getModemPreset().name();
+                        metricsLoraPreset.setText(formatPresetName(presetName));
+                    } else {
+                        metricsRegion.setText("--");
+                        metricsLoraPreset.setText("--");
+                    }
+
+                    // Device Config - Role
+                    ConfigProtos.Config.DeviceConfig deviceConfig = localConfig.getDevice();
+                    if (deviceConfig != null) {
+                        ConfigProtos.Config.DeviceConfig.Role role = deviceConfig.getRole();
+                        String roleName = role.name();
+                        metricsRole.setText(formatRoleName(roleName));
+
+                        // Show warning banner if Role is not TAK or TAK_TRACKER
+                        if (role != ConfigProtos.Config.DeviceConfig.Role.TAK &&
+                            role != ConfigProtos.Config.DeviceConfig.Role.TAK_TRACKER) {
+                            roleWarningBanner.setVisibility(View.VISIBLE);
+                        } else {
+                            roleWarningBanner.setVisibility(View.GONE);
+                        }
+                    } else {
+                        metricsRole.setText("--");
+                        roleWarningBanner.setVisibility(View.GONE);
+                    }
+                } else {
+                    metricsRegion.setText("--");
+                    metricsLoraPreset.setText("--");
+                    metricsRole.setText("--");
+                    roleWarningBanner.setVisibility(View.GONE);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error parsing device config", e);
+                metricsRegion.setText("--");
+                metricsLoraPreset.setText("--");
+                metricsRole.setText("--");
+                roleWarningBanner.setVisibility(View.GONE);
+            }
+
+            // Display node info from localNode (already found above)
             if (localNode != null) {
                 // Node name
                 if (localNode.getUser() != null) {
@@ -824,7 +944,8 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
                     metricsUptime.setText("--");
                 }
             } else {
-                metricsNodeName.setText("Node " + Integer.toHexString(myInfo.getMyNodeNum()));
+                // LocalNode not found in nodes list, use myNodeId for display
+                metricsNodeName.setText("Node " + (myNodeId.startsWith("!") ? myNodeId.substring(1) : myNodeId));
                 metricsBattery.setText("--");
                 metricsVoltage.setText("--");
                 metricsUptime.setText("--");
@@ -854,6 +975,108 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
             int days = seconds / 86400;
             int hours = (seconds % 86400) / 3600;
             return days + "d " + hours + "h";
+        }
+    }
+
+    /**
+     * Format region code name for display (e.g., "EU_868" -> "EU 868")
+     */
+    private String formatRegionName(String regionName) {
+        if (regionName == null || regionName.equals("UNSET")) {
+            return "Not Set";
+        }
+        return regionName.replace("_", " ");
+    }
+
+    /**
+     * Format modem preset name for display (e.g., "LONG_FAST" -> "Long Fast")
+     */
+    private String formatPresetName(String presetName) {
+        if (presetName == null) {
+            return "--";
+        }
+        // Convert from LONG_FAST to Long Fast
+        String[] parts = presetName.toLowerCase().split("_");
+        StringBuilder result = new StringBuilder();
+        for (String part : parts) {
+            if (part.length() > 0) {
+                if (result.length() > 0) {
+                    result.append(" ");
+                }
+                result.append(Character.toUpperCase(part.charAt(0)));
+                if (part.length() > 1) {
+                    result.append(part.substring(1));
+                }
+            }
+        }
+        return result.toString();
+    }
+
+    /**
+     * Format role name for display (e.g., "CLIENT_MUTE" -> "Client Mute")
+     */
+    private String formatRoleName(String roleName) {
+        if (roleName == null) {
+            return "--";
+        }
+        // Convert from CLIENT_MUTE to Client Mute
+        String[] parts = roleName.toLowerCase().split("_");
+        StringBuilder result = new StringBuilder();
+        for (String part : parts) {
+            if (part.length() > 0) {
+                if (result.length() > 0) {
+                    result.append(" ");
+                }
+                result.append(Character.toUpperCase(part.charAt(0)));
+                if (part.length() > 1) {
+                    result.append(part.substring(1));
+                }
+            }
+        }
+        return result.toString();
+    }
+
+    /**
+     * Set the device Role to TAK via IMeshService
+     */
+    private void setDeviceRoleToTak() {
+        try {
+            byte[] configBytes = MeshtasticMapComponent.getConfig();
+            if (configBytes == null || configBytes.length == 0) {
+                Toast.makeText(appContext, "Cannot get device config", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            // Parse the current config
+            LocalOnlyProtos.LocalConfig currentConfig = LocalOnlyProtos.LocalConfig.parseFrom(configBytes);
+            ConfigProtos.Config.DeviceConfig currentDeviceConfig = currentConfig.getDevice();
+
+            // Build new DeviceConfig with Role set to TAK, preserving other settings
+            ConfigProtos.Config.DeviceConfig.Builder newDeviceConfigBuilder = currentDeviceConfig.toBuilder();
+            newDeviceConfigBuilder.setRole(ConfigProtos.Config.DeviceConfig.Role.TAK);
+            ConfigProtos.Config.DeviceConfig newDeviceConfig = newDeviceConfigBuilder.build();
+
+            // Build new LocalConfig with the updated DeviceConfig
+            LocalOnlyProtos.LocalConfig.Builder newConfigBuilder = currentConfig.toBuilder();
+            newConfigBuilder.setDevice(newDeviceConfig);
+            LocalOnlyProtos.LocalConfig newConfig = newConfigBuilder.build();
+
+            // Send the updated config
+            byte[] newConfigBytes = newConfig.toByteArray();
+            MeshtasticMapComponent.setConfig(newConfigBytes);
+
+            Log.d(TAG, "Device Role set to TAK");
+            Toast.makeText(appContext, "Device Role set to TAK. Device will reboot to apply changes.", Toast.LENGTH_LONG).show();
+
+            // Hide the warning banner
+            roleWarningBanner.setVisibility(View.GONE);
+
+            // Refresh the display after a short delay to show the updated Role
+            mainView.postDelayed(this::updateMetricsDisplay, 2000);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting device Role to TAK", e);
+            Toast.makeText(appContext, "Failed to set Role: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -931,7 +1154,7 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
         channel = MeshtasticReceiver.getChannelIndex();
 
         // Send as TEXT_MESSAGE_APP for interoperability with Meshtastic Android app chat
-        DataPacket dp = new DataPacket(DataPacket.ID_BROADCAST, converted.getBytes(), Portnums.PortNum.TEXT_MESSAGE_APP_VALUE, DataPacket.ID_LOCAL, System.currentTimeMillis(), 0, MessageStatus.UNKNOWN, hopLimit, channel, MeshtasticReceiver.getWantsAck(), 0, 0f, 0, null, null, 0, false);
+        DataPacket dp = new DataPacket(DataPacket.ID_BROADCAST, converted.getBytes(), Portnums.PortNum.TEXT_MESSAGE_APP_VALUE, DataPacket.ID_LOCAL, System.currentTimeMillis(), 0, MessageStatus.UNKNOWN, hopLimit, channel, MeshtasticReceiver.getWantsAck(), 0, 0f, 0, null, null, 0, false, 0, 0, null);
         MeshtasticMapComponent.sendToMesh(dp);
         Log.d(TAG, "Voice Memo sent as TEXT_MESSAGE_APP: " + converted);
     }

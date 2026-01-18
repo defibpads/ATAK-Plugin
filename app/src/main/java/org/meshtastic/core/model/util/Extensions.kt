@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Meshtastic LLC
+ * Copyright (c) 2025-2026 Meshtastic LLC
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,10 +14,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-
 package org.meshtastic.core.model.util
 
-import android.widget.EditText
 import org.meshtastic.proto.ConfigProtos
 import org.meshtastic.proto.MeshProtos
 
@@ -58,22 +56,13 @@ fun MeshProtos.toOneLineString(): String {
 }
 
 // Return a one line string version of an object (but if a release build, just say 'might be PII)
-fun Any.toPIIString() = "<PII?>"
+fun Any.toPIIString() = if (!false) {
+    "<PII?>"
+} else {
+    this.toOneLineString()
+}
 
 fun ByteArray.toHexString() = joinToString("") { "%02x".format(it) }
-
-@Suppress("MagicNumber")
-fun formatAgo(lastSeenUnix: Int, currentTimeMillis: Long = System.currentTimeMillis()): String {
-    val currentTime = (currentTimeMillis / 1000).toInt()
-    val diffMin = (currentTime - lastSeenUnix) / 60
-    return when {
-        diffMin < 1 -> "now"
-        diffMin < 60 -> diffMin.toString() + " min"
-        diffMin < 2880 -> (diffMin / 60).toString() + " h"
-        diffMin < 1440000 -> (diffMin / (60 * 24)).toString() + " d"
-        else -> "?"
-    }
-}
 
 private const val MPS_TO_KMPH = 3.6f
 private const val KM_TO_MILES = 0.621371f
@@ -88,14 +77,4 @@ fun Int.mpsToMph(): Float {
     // Convert meters per second to miles per hour
     val mph = this * MPS_TO_KMPH * KM_TO_MILES
     return mph
-}
-
-// Allows usage like email.onEditorAction(EditorInfo.IME_ACTION_NEXT, { confirm() })
-fun EditText.onEditorAction(actionId: Int, func: () -> Unit) {
-    setOnEditorActionListener { _, receivedActionId, _ ->
-        if (actionId == receivedActionId) {
-            func()
-        }
-        true
-    }
 }
