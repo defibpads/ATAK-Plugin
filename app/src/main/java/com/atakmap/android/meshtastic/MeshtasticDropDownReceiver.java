@@ -16,6 +16,7 @@ import android.preference.PreferenceManager;
 import android.speech.tts.TextToSpeech;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.net.Uri;
 import android.widget.Button;
@@ -24,6 +25,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.os.Handler;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -118,6 +120,8 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
     private int c2FrameSize = 0;
     private int samplesBufSize = 0;
     private Activity activity;
+    private Handler totHandler = new Handler();
+    private Runnable totRunnable;
 
     private boolean isCodecInitialized() {
         return c2 != 0;
@@ -199,16 +203,7 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
 
                 // button to voice talk to all devices
                 talk = mainView.findViewById(R.id.talk);
-                talk.setOnClickListener(v -> {
-                    if (!isRecording.getAndSet(true)) {
-                        talk.setText("Stop");
-                        recordVoice(true);
-                    } else {
-                        isRecording.set(false);
-                        talk.setText("All Talk");
-                        Log.d(TAG, "Recording stopped");
-                    }
-                });
+                setupTalkButton();
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -277,6 +272,99 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
 
     private final Queue<byte[]> recordingQueue = new ConcurrentLinkedQueue<>();
     private boolean isRecordingActive = false;
+
+    /**
+     * Setup the All Talk button with momentary or latching mode based on preferences
+     */
+    private void setupTalkButton() {
+        if (talk == null) return;
+
+        boolean momentaryMode = prefs.getBoolean(Constants.PREF_PLUGIN_PTT_MOMENTARY, false);
+
+        if (momentaryMode) {
+            // Momentary mode - transmit only while button is pressed
+            talk.setOnTouchListener((v, event) -> {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        // Start recording on press
+                        if (!isRecording.getAndSet(true)) {
+                            talk.setText("Transmitting...");
+                            startTOTTimer();
+                            recordVoice(true);
+                        }
+                        return true;
+
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        // Stop recording on release
+                        if (isRecording.get()) {
+                            stopTOTTimer();
+                            isRecording.set(false);
+                            talk.setText("All Talk");
+                            Log.d(TAG, "Recording stopped (button released)");
+                        }
+                        return true;
+
+                    default:
+                        return false;
+                }
+            });
+        } else {
+            // Latching mode - toggle recording on/off with each click
+            talk.setOnClickListener(v -> {
+                if (!isRecording.getAndSet(true)) {
+                    talk.setText("Stop");
+                    startTOTTimer();
+                    recordVoice(true);
+                } else {
+                    stopTOTTimer();
+                    isRecording.set(false);
+                    talk.setText("All Talk");
+                    Log.d(TAG, "Recording stopped");
+                }
+            });
+            // Clear any touch listener that might have been set
+            talk.setOnTouchListener(null);
+        }
+    }
+
+    /**
+     * Start the Time Out Timer (TOT) if configured
+     */
+    private void startTOTTimer() {
+        int totSeconds = Integer.parseInt(prefs.getString(Constants.PREF_PLUGIN_TOT, "0"));
+
+        if (totSeconds > 0) {
+            totRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (isRecording.get()) {
+                        Log.w(TAG, "TOT triggered - stopping transmission after " + totSeconds + " seconds");
+                        isRecording.set(false);
+
+                        activity.runOnUiThread(() -> {
+                            talk.setText("All Talk");
+                            Toast.makeText(appContext, "Transmission stopped: Time Out Timer (" + totSeconds + "s)",
+                                    Toast.LENGTH_SHORT).show();
+                        });
+                    }
+                }
+            };
+            totHandler.postDelayed(totRunnable, totSeconds * 1000L);
+            Log.d(TAG, "TOT started: " + totSeconds + " seconds");
+        }
+    }
+
+    /**
+     * Stop/cancel the Time Out Timer
+     */
+    private void stopTOTTimer() {
+        if (totRunnable != null) {
+            totHandler.removeCallbacks(totRunnable);
+            totRunnable = null;
+            Log.d(TAG, "TOT cancelled");
+        }
+    }
 
     public synchronized void recordVoice(boolean isBroadcast) {
         if (isRecordingActive) {
@@ -698,6 +786,10 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
         if (v) {
             // Refresh metrics when dropdown becomes visible
             updateMetricsDisplay();
+            // Re-setup talk button in case preferences changed
+            if (talk != null) {
+                setupTalkButton();
+            }
         }
     }
 
@@ -1139,7 +1231,10 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
     @Override
     protected void disposeImpl() {
         mapView.removeOnKeyListener(keyListener);
-        
+
+        // Clean up TOT timer
+        stopTOTTimer();
+
         // Clean up Codec2 resources
         if (isCodecInitialized()) {
             try {
@@ -1149,7 +1244,7 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
                 Log.e(TAG, "Error destroying Codec2 instance", e);
             }
         }
-        
+
         // Clean up audio recorder if it exists
         stopRecording();
     }

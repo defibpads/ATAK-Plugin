@@ -126,6 +126,21 @@
         android:inputType="number"
         android:defaultValue="79"/>
 
+    <com.atakmap.android.gui.PanSwitchPreference
+        android:key="plugin_meshtastic_ptt_momentary"
+        android:title="PTT Momentary Mode"
+        android:summary="Hold button to transmit, release to stop (disable for latching mode)"
+        android:defaultValue="false"/>
+
+    <com.atakmap.android.gui.PanListPreference
+        android:key="plugin_meshtastic_tot"
+        android:title="Time Out Timer (TOT)"
+        android:summary="Maximum transmission length (prevents accidental long transmissions)"
+        android:dialogTitle="Time Out Timer"
+        android:entries="@array/tot_names"
+        android:entryValues="@array/tot_values"
+        android:defaultValue="0"/>
+
     <!-- GPS Settings -->
     <PreferenceCategory android:title="GPS Settings" />
 
