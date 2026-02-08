@@ -98,25 +98,32 @@ public class FountainChunkManager {
     /**
      * Get per-packet TX time based on modem preset.
      * These times account for airtime, processing, and mesh propagation.
+     *
+     * Meshtastic ModemPreset enum values:
+     * LONG_FAST = 0, LONG_SLOW = 1, VERY_LONG_SLOW = 2 (deprecated),
+     * MEDIUM_SLOW = 3, MEDIUM_FAST = 4, SHORT_SLOW = 5, SHORT_FAST = 6,
+     * LONG_MODERATE = 7, SHORT_TURBO = 8
      */
     private static long getPerPacketTxTime(int modemPreset) {
         switch (modemPreset) {
-            case 0: // SHORT_TURBO
-                return TX_TIME_SHORT_TURBO;
-            case 1: // SHORT_FAST
-                return TX_TIME_SHORT_FAST;
-            case 2: // SHORT_SLOW
-                return TX_TIME_SHORT_SLOW;
-            case 3: // MEDIUM_FAST
-                return TX_TIME_MEDIUM_FAST;
-            case 4: // MEDIUM_SLOW
-                return TX_TIME_MEDIUM_SLOW;
-            case 5: // LONG_MODERATE
-                return TX_TIME_LONG_MODERATE;
-            case 6: // LONG_FAST
+            case 0: // LONG_FAST
                 return TX_TIME_LONG_FAST;
-            case 7: // LONG_SLOW
+            case 1: // LONG_SLOW (deprecated)
                 return TX_TIME_LONG_SLOW;
+            case 2: // VERY_LONG_SLOW (deprecated)
+                return TX_TIME_LONG_SLOW;  // Use LONG_SLOW timing
+            case 3: // MEDIUM_SLOW
+                return TX_TIME_MEDIUM_SLOW;
+            case 4: // MEDIUM_FAST
+                return TX_TIME_MEDIUM_FAST;
+            case 5: // SHORT_SLOW
+                return TX_TIME_SHORT_SLOW;
+            case 6: // SHORT_FAST
+                return TX_TIME_SHORT_FAST;
+            case 7: // LONG_MODERATE
+                return TX_TIME_LONG_MODERATE;
+            case 8: // SHORT_TURBO
+                return TX_TIME_SHORT_TURBO;
             default:
                 Log.w(TAG, "Unknown modem preset " + modemPreset + ", using default timing");
                 return TX_TIME_DEFAULT;

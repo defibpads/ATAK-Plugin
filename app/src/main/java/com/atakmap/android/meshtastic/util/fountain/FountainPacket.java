@@ -39,8 +39,9 @@ public class FountainPacket {
     public static final int DATA_HEADER_SIZE = 11;  // MAGIC(3) + xfer(3) + seed(2) + K(1) + len(2)
     public static final int ACK_PACKET_SIZE = 19;   // MAGIC(3) + xfer(3) + type(1) + recv(2) + need(2) + hash(8)
 
-    // Maximum payload size (Meshtastic limit is 233, leave margin for app overhead)
-    public static final int MAX_PAYLOAD_SIZE = 220;
+    // Maximum payload size (Meshtastic limit is 233, minus 11-byte header and 6-byte protobuf overhead = 216)
+    // Using 214 for additional safety margin
+    public static final int MAX_PAYLOAD_SIZE = 214;
 
     /**
      * Represents a data block packet.
