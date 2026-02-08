@@ -464,15 +464,18 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     chatDetail.setAttribute("parent", "RootContactGroup");
                     chatDetail.setAttribute("groupOwner", "false");
                     chatDetail.setAttribute("messageId", UUID.randomUUID().toString());
-                    chatDetail.setAttribute("chatroom", myNodeID);
-                    chatDetail.setAttribute("id", myNodeID);
+                    // Use sender's node ID as chatroom so messages appear in their chat window,
+                    // not the local node's window. This allows proper conversation threading
+                    // and ensures replies go to the correct remote device.
+                    chatDetail.setAttribute("chatroom", senderNodeId);
+                    chatDetail.setAttribute("id", senderNodeId);
                     chatDetail.setAttribute("senderCallsign", senderCallsign);
                     cotDetail.addChild(chatDetail);
 
                     CotDetail chatgrp = new CotDetail("chatgrp");
                     chatgrp.setAttribute("uid0", senderUid);
                     chatgrp.setAttribute("uid1", myNodeID);
-                    chatgrp.setAttribute("id", myNodeID);
+                    chatgrp.setAttribute("id", senderNodeId);
                     chatDetail.addChild(chatgrp);
 
                     CotDetail linkDetail = new CotDetail("link");
@@ -1228,15 +1231,17 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     chatDetail.setAttribute("parent", "RootContactGroup");
                     chatDetail.setAttribute("groupOwner", "false");
                     chatDetail.setAttribute("messageId", msgId);
-                    chatDetail.setAttribute("chatroom", getMapView().getDeviceCallsign());
-                    chatDetail.setAttribute("id", getMapView().getSelfMarker().getUID());
+                    // Use sender's callsign/UID as chatroom so messages appear in their chat window,
+                    // not the local device's window. This allows proper conversation threading.
+                    chatDetail.setAttribute("chatroom", callsign);
+                    chatDetail.setAttribute("id", deviceCallsign);
                     chatDetail.setAttribute("senderCallsign", callsign);
                     cotDetail.addChild(chatDetail);
 
                     CotDetail chatgrp = new CotDetail("chatgrp");
                     chatgrp.setAttribute("uid0", deviceCallsign);
                     chatgrp.setAttribute("uid1", getMapView().getSelfMarker().getUID());
-                    chatgrp.setAttribute("id", getMapView().getSelfMarker().getUID());
+                    chatgrp.setAttribute("id", deviceCallsign);
                     chatDetail.addChild(chatgrp);
 
                     CotDetail linkDetail = new CotDetail("link");
