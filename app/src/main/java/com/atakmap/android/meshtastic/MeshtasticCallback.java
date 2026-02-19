@@ -51,7 +51,7 @@ public class MeshtasticCallback implements SaveAndSendCallback {
 
             Log.d(TAG, "File is small enough to send: " + FileSystemUtils.getFileSize(file));
 
-            // Check if we're on Short_Turbo modem preset
+            // Check if we're on a compatible modem preset (Short_Turbo or Short_Fast)
             byte[] config = MeshtasticMapComponent.getConfig();
             if (config == null || config.length == 0) {
                 showToast("Cannot get radio config. Is Meshtastic connected?");
@@ -70,16 +70,15 @@ public class MeshtasticCallback implements SaveAndSendCallback {
             Config.LoRaConfig lc = c.getLora();
             int currentModemPreset = lc.getModem_preset().getValue();
 
-            // Check if on Short_Turbo (value 0)
-            if (currentModemPreset != 0) {
+            // SHORT_TURBO = 8, SHORT_FAST = 6
+            if (currentModemPreset != 8 && currentModemPreset != 6) {
                 String presetName = lc.getModem_preset().name();
-                showToast("File transfer requires Short_Turbo preset.\nCurrently on: " + presetName);
-                Log.w(TAG, "File transfer blocked - not on Short_Turbo. Current preset: " + presetName);
+                showToast("File transfer requires Short Turbo or Short Fast preset.\nCurrently on: " + presetName);
+                Log.w(TAG, "File transfer blocked - not on Short_Turbo or Short_Fast. Current preset: " + presetName);
                 return;
             }
 
-            // We're on Short_Turbo, proceed with file transfer
-            Log.d(TAG, "On Short_Turbo preset, proceeding with file transfer");
+            Log.d(TAG, "On compatible preset (" + lc.getModem_preset().name() + "), proceeding with file transfer");
 
             // Block other transfers while file transfer is in progress
             editor.putBoolean(Constants.PREF_PLUGIN_CHUNKING, true);

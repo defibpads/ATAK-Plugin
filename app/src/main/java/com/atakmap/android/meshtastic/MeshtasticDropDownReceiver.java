@@ -558,11 +558,11 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
                         null, // relayNode
                         0,    // relays
                         false, // viaMqtt
-                        0,    // retryCount
                         0,    // emoji
-                        null  // sfppHash
+                        null, // sfppHash
+                        0     // transportMechanism
                 );
-                
+
                 MeshtasticMapComponent.sendToMesh(dp);
                 Log.d(TAG, "Audio packet sent successfully");
             } catch (Exception e) {
@@ -1272,7 +1272,7 @@ public class MeshtasticDropDownReceiver extends DropDownReceiver implements
 
         // Send as TEXT_MESSAGE_APP for interoperability with Meshtastic Android app chat
         byte[] convertedBytes = converted.getBytes();
-        DataPacket dp = new DataPacket(DataPacket.ID_BROADCAST, ByteString.of(convertedBytes, 0, convertedBytes.length), PortNum.TEXT_MESSAGE_APP.getValue(), DataPacket.ID_LOCAL, System.currentTimeMillis(), 0, MessageStatus.UNKNOWN, hopLimit, channel, MeshtasticReceiver.getWantsAck(), 0, 0f, 0, null, null, 0, false, 0, 0, null);
+        DataPacket dp = new DataPacket(DataPacket.ID_BROADCAST, ByteString.of(convertedBytes, 0, convertedBytes.length), PortNum.TEXT_MESSAGE_APP.getValue(), DataPacket.ID_LOCAL, System.currentTimeMillis(), 0, MessageStatus.UNKNOWN, hopLimit, channel, MeshtasticReceiver.getWantsAck(), 0, 0f, 0, null, null, 0, false, 0, null, 0);
         MeshtasticMapComponent.sendToMesh(dp);
         Log.d(TAG, "Voice Memo sent as TEXT_MESSAGE_APP: " + converted);
     }

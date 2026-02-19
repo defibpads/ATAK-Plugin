@@ -1456,7 +1456,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                     Log.d(TAG, "Total wire size for TAKPacket: " + takPacketBytes.length);
                     //Log.d(TAG, "Sending: " + tak_packet.toString());
 
-                    dp = new DataPacket(DataPacket.ID_BROADCAST, ByteString.of(takPacketBytes, 0, takPacketBytes.length), PortNum.ATAK_PLUGIN.getValue(), DataPacket.ID_LOCAL, System.currentTimeMillis(), 0, MessageStatus.UNKNOWN, hopLimit, channel, getWantsAck(), 0, 0f, 0, null, null, 0, false, 0, 0, null);
+                    dp = new DataPacket(DataPacket.ID_BROADCAST, ByteString.of(takPacketBytes, 0, takPacketBytes.length), PortNum.ATAK_PLUGIN.getValue(), DataPacket.ID_LOCAL, System.currentTimeMillis(), 0, MessageStatus.UNKNOWN, hopLimit, channel, getWantsAck(), 0, 0f, 0, null, null, 0, false, 0, null, 0);
                     if (MeshtasticMapComponent.getMeshService() != null)
                         MeshtasticMapComponent.getMeshService().sendToMesh(dp);
                 } else if (cotDetail.getAttribute("contact") != null) {
@@ -1556,7 +1556,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                             Log.d(TAG, "Total wire size for TAKPacket: " + takPacketBytes.length);
                             //Log.d(TAG, "Sending: " + tak_packet.toString());
 
-                            dp = new DataPacket(DataPacket.ID_BROADCAST, ByteString.of(takPacketBytes, 0, takPacketBytes.length), PortNum.ATAK_PLUGIN.getValue(), DataPacket.ID_LOCAL, System.currentTimeMillis(), 0, MessageStatus.UNKNOWN, hopLimit, channel, getWantsAck(), 0, 0f, 0, null, null, 0, false, 0, 0, null);
+                            dp = new DataPacket(DataPacket.ID_BROADCAST, ByteString.of(takPacketBytes, 0, takPacketBytes.length), PortNum.ATAK_PLUGIN.getValue(), DataPacket.ID_LOCAL, System.currentTimeMillis(), 0, MessageStatus.UNKNOWN, hopLimit, channel, getWantsAck(), 0, 0f, 0, null, null, 0, false, 0, null, 0);
                             if (MeshtasticMapComponent.getMeshService() != null)
                                 MeshtasticMapComponent.getMeshService().sendToMesh(dp);
                         }
@@ -1648,7 +1648,7 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
                         getHopLimit(),
                         getChannelIndex(),
                         getWantsAck(),
-                        0, 0f, 0, null, null, 0, false, 0, 0, null
+                        0, 0f, 0, null, null, 0, false, 0, null, 0
                 );
                 MeshtasticMapComponent.sendToMesh(dp);
             }
