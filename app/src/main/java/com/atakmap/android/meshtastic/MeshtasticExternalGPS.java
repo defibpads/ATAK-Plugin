@@ -21,11 +21,10 @@ public class MeshtasticExternalGPS {
     private final AtomicReference<Position> currentPosition = new AtomicReference<>();
     private final AtomicBoolean started = new AtomicBoolean(false);
     private final AtomicInteger port = new AtomicInteger(-1);
-    private final ScheduledExecutorService updaterThread;
+    private ScheduledExecutorService updaterThread;
     private final PositionToNMEAMapper positionToNMEAMapper;
 
     public MeshtasticExternalGPS(PositionToNMEAMapper positionToNMEAMapper) {
-        this.updaterThread = Executors.newSingleThreadScheduledExecutor();
         this.positionToNMEAMapper = positionToNMEAMapper;
     }
 
@@ -53,6 +52,7 @@ public class MeshtasticExternalGPS {
                 return port;
             }
         });
+        updaterThread = Executors.newSingleThreadScheduledExecutor();
         updaterThread.scheduleWithFixedDelay(this::refreshPosition, 1, 5, TimeUnit.SECONDS);
         Log.i(TAG, "Meshtastic External GPS started");
     }

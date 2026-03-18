@@ -351,7 +351,13 @@ public class MeshtasticReceiver extends BroadcastReceiver implements CotServiceR
             case Constants.ACTION_ALERT_APP:
             case Constants.ACTION_TEXT_MESSAGE_APP:
                 Log.d(TAG, "Got a meshtastic text message");
-                DataPacket payload = getParcelableExtraSafe(intent, Constants.EXTRA_PAYLOAD, DataPacket.class);
+                DataPacket payload;
+                try {
+                    payload = getParcelableExtraSafe(intent, Constants.EXTRA_PAYLOAD, DataPacket.class);
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to unparcel DataPacket from text message broadcast", e);
+                    return;
+                }
                 if (payload == null) return;
 
                 // Apply channel filter if enabled
